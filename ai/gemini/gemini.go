@@ -113,7 +113,7 @@ func (g *gemini) ChatWithImg(chatId string, msg string, imgType string, imgData 
 		if err != nil {
 			log.Error().Err(err).Msg("failed to send message to gemini")
 		} else {
-			result := fmt.Sprint(resp.Candidates[0].Content.Parts[0].Text)
+			result := resp.Candidates[0].Content.Parts[0].Text
 			if err := g.db.Add(models.NewChat(chatId, false, result)); err != nil {
 				log.Error().Err(err).Msg("failed to add chat record")
 				return "", err
