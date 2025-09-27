@@ -14,7 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type webHookConnect struct {
+type WebHookConnect struct {
 	bot         *gotgbot.Bot
 	dispatcher  *ext.Dispatcher
 	updater     *ext.Updater
@@ -29,7 +29,7 @@ type webHookUpdate struct {
 }
 
 // create webHook
-func NewWebHookConnect(whConfig config.WebHookConfig) *webHookConnect {
+func NewWebHookConnect(whConfig config.WebHookConfig) *WebHookConnect {
 	var (
 		token   = whConfig.Token
 		address = whConfig.Address
@@ -85,20 +85,20 @@ func NewWebHookConnect(whConfig config.WebHookConfig) *webHookConnect {
 	}
 
 	if dispatcher != nil && updater != nil {
-		return &webHookConnect{bot: bot, dispatcher: dispatcher, updater: updater, webHookOpts: webHookOpts, token: token, domain: domain}
+		return &WebHookConnect{bot: bot, dispatcher: dispatcher, updater: updater, webHookOpts: webHookOpts, token: token, domain: domain}
 	}
 	return nil
 }
 
-func (w *webHookConnect) RegisterHandler(handler ext.Handler) {
+func (w *WebHookConnect) RegisterHandler(handler ext.Handler) {
 	w.dispatcher.AddHandler(handler)
 }
 
-func (w *webHookConnect) RegisterHandlerWithCmd(handler handlers.Response, cmd string) {
+func (w *WebHookConnect) RegisterHandlerWithCmd(handler handlers.Response, cmd string) {
 	w.dispatcher.AddHandler(handlers.NewCommand(cmd, handler))
 }
 
-func (w *webHookConnect) Start() {
+func (w *WebHookConnect) Start() {
 	err := w.updater.StartWebhook(w.bot, "youtubeMusic/"+w.token, *w.webHookOpts)
 	if err != nil {
 		log.Panic().Stack().Err(err).Msg("start webhook error")
@@ -116,7 +116,7 @@ func (w *webHookConnect) Start() {
 	w.updater.Idle()
 }
 
-func (w *webHookConnect) Stop() {
+func (w *WebHookConnect) Stop() {
 	w.dispatcher.Stop()
 	err := w.updater.Stop()
 	if err != nil {

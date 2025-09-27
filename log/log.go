@@ -17,16 +17,16 @@ func Init(cfg config.Log) {
 		zerolog.TimeFieldFormat = cfg.TimeFormat
 	}
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339}
-	output.FormatLevel = func(i interface{}) string {
+	output.FormatLevel = func(i any) string {
 		return strings.ToUpper(fmt.Sprintf("| %-6s|", i))
 	}
-	output.FormatMessage = func(i interface{}) string {
+	output.FormatMessage = func(i any) string {
 		return fmt.Sprintf("\t%s\t", i)
 	}
-	output.FormatFieldName = func(i interface{}) string {
+	output.FormatFieldName = func(i any) string {
 		return fmt.Sprintf("%s:", i)
 	}
-	output.FormatFieldValue = func(i interface{}) string {
+	output.FormatFieldValue = func(i any) string {
 		return strings.ToUpper(fmt.Sprintf("%s", i))
 	}
 
