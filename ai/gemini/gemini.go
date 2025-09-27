@@ -10,9 +10,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 const (
@@ -22,15 +21,16 @@ const (
 var _ ai.AiInterface = (*gemini)(nil)
 
 type gemini struct {
-	model *genai.GenerativeModel
-	chats map[string]*genai.ChatSession
-	ctx   context.Context
-	db    storageImpl.Chat
+	client    *genai.Client
+	chats     map[string]*genai.Chat
+	modelName string
+	ctx       context.Context
+	db        storageImpl.Chat
 }
 
 func NewGemini(cfg config.Ai) *gemini {
 	ctx := context.Background()
-	client, err := genai.NewClient(ctx, option.WithAPIKey(cfg.GeminiKey))
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{APIKey: cfg.GeminiKey})
 	if err != nil {
 		log.Panic().Err(err)
 	}
@@ -40,32 +40,28 @@ func NewGemini(cfg config.Ai) *gemini {
 	}
 	modelName := cfg.GeminiModel
 	if modelName == "" {
-		modelName = "gemini-1.5-flash"
+		modelName = "gemini-2.5-flash"
 	}
-	model := client.GenerativeModel(modelName)
-	getRole := func(b bool) string {
-		if b {
-			return "user"
-		}
-		return "model"
-	}
-	css := make(map[string]*genai.ChatSession)
+
+	css := make(map[string]*genai.Chat)
 	for _, u := range db.GetAllUser() {
 		msgs, err := db.GetMsgByTime(time.Now().Add(-saveTime), time.Now(), u)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to get chat record")
 			continue
 		}
-		cs := model.StartChat()
+		history := []*genai.Content{}
 		for _, m := range msgs {
-			cs.History = append(cs.History, &genai.Content{
-				Parts: []genai.Part{genai.Text(m.Msg)},
-				Role:  getRole(m.IsUser),
-			})
+			if m.IsUser {
+				history = append(history, genai.NewContentFromText(m.Msg, genai.RoleUser))
+			} else {
+				history = append(history, genai.NewContentFromText(m.Msg, genai.RoleModel))
+			}
 		}
-		css[u] = cs
+		chat, _ := client.Chats.Create(ctx, modelName, nil, history)
+		css[u] = chat
 	}
-	g := &gemini{model, css, ctx, db}
+	g := &gemini{client, css, modelName, ctx, db}
 	go g.autoDeleteDB()
 	return g
 }
@@ -75,9 +71,8 @@ func (g gemini) Name() string {
 }
 
 func (g *gemini) HandleTextWithImg(msg string, imgType string, imgData []byte) (string, error) {
-	input := msg
-	resp, err := g.model.GenerateContent(g.ctx,
-		genai.Text(input), genai.ImageData(imgType, imgData))
+	resp, err := g.client.Models.GenerateContent(g.ctx, g.modelName,
+		[]*genai.Content{genai.NewContentFromBytes(imgData, imgType, genai.RoleUser)}, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("could not get response from gemini")
 		return "", err
@@ -88,8 +83,9 @@ func (g *gemini) HandleTextWithImg(msg string, imgType string, imgData []byte) (
 
 func (g *gemini) HandleText(msg string) (string, error) {
 	input := msg
-	resp, err := g.model.GenerateContent(g.ctx,
-		genai.Text(input))
+	resp, err := g.client.Models.GenerateContent(g.ctx,
+		g.modelName,
+		genai.Text(input), nil)
 	if err != nil {
 		log.Error().Err(err).Msg("could not get response from gemini")
 		return "", err
@@ -99,44 +95,31 @@ func (g *gemini) HandleText(msg string) (string, error) {
 }
 
 func (g *gemini) ChatWithImg(chatId string, msg string, imgType string, imgData []byte) (string, error) {
-	var cs *genai.ChatSession
-	var ok bool
 	var resp *genai.GenerateContentResponse
 	var err error
-	if cs, ok = g.chats[chatId]; !ok {
-		cs = g.model.StartChat()
-		g.chats[chatId] = cs
-	}
-	if len(cs.History) > 29 {
-		cs.History = cs.History[len(cs.History)-30:]
-	}
+	cs := g.chats[chatId]
 	if err := g.db.Add(models.NewChat(chatId, true, msg)); err != nil {
 		log.Error().Err(err).Msg("failed to add chat record")
 	}
 	for range 3 {
 		if len(imgData) > 0 {
-			resp, err = cs.SendMessage(g.ctx, genai.Text(msg), genai.ImageData(imgType, imgData))
+			part := genai.NewPartFromBytes(imgData, imgType)
+			part.Text = msg
+			resp, err = cs.SendMessage(g.ctx, *part)
 		} else {
-			resp, err = cs.SendMessage(g.ctx, genai.Text(msg))
+			resp, err = cs.SendMessage(g.ctx, *genai.NewPartFromText(msg))
 		}
 
 		if err != nil {
 			log.Error().Err(err).Msg("failed to send message to gemini")
 		} else {
-			result := fmt.Sprint(resp.Candidates[0].Content.Parts[0])
+			result := fmt.Sprint(resp.Candidates[0].Content.Parts[0].Text)
 			if err := g.db.Add(models.NewChat(chatId, false, result)); err != nil {
 				log.Error().Err(err).Msg("failed to add chat record")
 				return "", err
 			}
 			return result, nil
 		}
-	}
-	cs.History = append(cs.History, &genai.Content{
-		Parts: []genai.Part{genai.Text("I got something wrong. I'll try again.")},
-		Role:  "model",
-	})
-	if err := g.db.Add(models.NewChat(chatId, false, "I got something wrong. I'll try again.")); err != nil {
-		log.Error().Err(err).Msg("failed to add chat record")
 	}
 	return "", errors.New("failed to send message to gemini")
 }
@@ -146,18 +129,6 @@ func (g *gemini) Chat(chatId string, msg string) (string, error) {
 }
 
 func (g *gemini) AddChatMsg(chatId string, userSay string, botSay string) error {
-	var cs *genai.ChatSession
-	var ok bool
-	if cs, ok = g.chats[chatId]; !ok {
-		return nil
-	}
-	cs.History = append(cs.History, &genai.Content{
-		Parts: []genai.Part{genai.Text(userSay)},
-		Role:  "user",
-	}, &genai.Content{
-		Parts: []genai.Part{genai.Text(botSay)},
-		Role:  "model",
-	})
 	return nil
 }
 
@@ -169,10 +140,8 @@ func (g *gemini) autoDeleteDB() {
 	ticker := time.NewTicker(saveTime)
 	t := time.Now()
 	for {
-		select {
-		case <-ticker.C:
-			g.db.DeleteMsgBeforeTime(t)
-			t = time.Now()
-		}
+		<-ticker.C
+		g.db.DeleteMsgBeforeTime(t)
+		t = time.Now()
 	}
 }
