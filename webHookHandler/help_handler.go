@@ -40,7 +40,7 @@ const Help = `用法：
 > 摘星是bot的名字：@ytbmusicPlaerBot
 > 在这里可以看到摘星的源代码：https://github.com/bighu630/tg_bot
 
-你们的start是作者最大的动力😀
+你们的star是作者最大的动力😀
 `
 
 func NewHelpHandler() handlers.Response {
