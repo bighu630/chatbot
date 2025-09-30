@@ -27,5 +27,6 @@ func setBotStatusWithContext(ctx context.Context, b *gotgbot.Bot, tgctx *ext.Con
 func formatAiResp(str string) string {
 	str = strings.ReplaceAll(str, " **", "- **")
 	str = strings.ReplaceAll(str, "\n* ", "\n- ")
+	str = strings.ReplaceAll(str, "#-", "#")
 	return str
 }
