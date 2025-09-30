@@ -98,6 +98,14 @@ func (g *gemini) ChatWithImg(chatId string, msg string, imgType string, imgData 
 	var resp *genai.GenerateContentResponse
 	var err error
 	cs := g.chats[chatId]
+	if cs == nil {
+		cs, err = g.client.Chats.Create(g.ctx, g.modelName, nil, nil)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to create chat")
+			return "", err
+		}
+		g.chats[chatId] = cs
+	}
 	if err := g.db.Add(models.NewChat(chatId, true, msg)); err != nil {
 		log.Error().Err(err).Msg("failed to add chat record")
 	}
@@ -107,7 +115,8 @@ func (g *gemini) ChatWithImg(chatId string, msg string, imgType string, imgData 
 			part.Text = msg
 			resp, err = cs.SendMessage(g.ctx, *part)
 		} else {
-			resp, err = cs.SendMessage(g.ctx, *genai.NewPartFromText(msg))
+			part := genai.NewPartFromText(msg)
+			resp, err = cs.SendMessage(g.ctx, *part)
 		}
 
 		if err != nil {
