@@ -130,6 +130,8 @@ func (g *gemini) ChatWithImg(chatId string, msg string, imgType string, imgData 
 			return result, nil
 		}
 	}
+	hs := cs.History(true)
+	hs = append(hs, genai.Text("处理错误，我忽略这个回答")...)
 	return "", errors.New("failed to send message to gemini")
 }
 
