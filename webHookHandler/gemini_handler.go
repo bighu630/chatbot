@@ -8,6 +8,7 @@ import (
 	"chatbot/webHookHandler/update"
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +39,23 @@ type takeInfo struct {
 	lastTime    time.Time
 }
 
+func TriggerWithPercentage(percentage float64) bool {
+	// 确保概率在有效范围内
+	if percentage < 0.0 {
+		percentage = 0.0
+	}
+	if percentage > 1.0 {
+		percentage = 1.0
+	}
+
+	// 生成一个0.0到1.0之间的随机浮点数
+	// rand.Float64() 返回 [0.0, 1.0) 的随机浮点数
+	randomValue := rand.Float64()
+
+	// 如果生成的随机数小于指定的概率，则触发事件
+	return randomValue < percentage
+}
+
 func NewGeminiHandler(cfg config.Ai) ext.Handler {
 	ai := gemini.NewGemini(cfg)
 	chatCache := NewChatCache()
@@ -55,13 +73,6 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 			}
 			return (ctx.EffectiveMessage.ReplyToMessage == nil || ctx.EffectiveMessage.ReplyToMessage.From.Username != b.Username)
 		}
-		if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
-			msg := ctx.EffectiveMessage.Text
-			if len(msg) > 0 {
-				chatCache.AddMsg(ctx.EffectiveChat.Title, ctx.EffectiveSender.User.Username, msg)
-			}
-
-		}
 		if ctx.EffectiveMessage.ReplyToMessage != nil &&
 			ctx.EffectiveMessage.ReplyToMessage.From.Username == b.Username {
 			return true
@@ -71,7 +82,21 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 				return true
 			}
 		}
-		return strings.HasPrefix(ctx.EffectiveMessage.Text, "/chat ")
+		bc := strings.HasPrefix(ctx.EffectiveMessage.Text, "/chat ")
+		if bc {
+			return bc
+		} else {
+			if TriggerWithPercentage(0.05) {
+				return true
+			}
+			if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
+				msg := ctx.EffectiveMessage.Text
+				if len(msg) > 0 {
+					chatCache.AddMsg(ctx.EffectiveChat.Title, ctx.EffectiveSender.User.Username, msg)
+				}
+			}
+			return false
+		}
 	})
 	return gai
 }
@@ -107,7 +132,10 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	// 如果是在群组里聊天，把聊天历史加上
 
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
-		input = fmt.Sprintf("参考对话历史(你自己酌情参考): %s, 有人与你对话,消息是:%s。(请用群友摘星的角色回答，尽量自然)", g.chatCache.GetChatMsgAndClean(sender),input) 
+		hmsg := g.chatCache.GetChatMsgAndClean(sender)
+		if len(hmsg) > 0 {
+			input = fmt.Sprintf("对话历史(酌情参考): %s\n, 有人向你发送消息: %s\n(请以群友摘星的角色回答，尽量自然,摘星是个博学&理性的人)", hmsg,input) 
+		}
 	}
 
 	c, cancel := context.WithCancel(context.Background())
