@@ -134,7 +134,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		hmsg := g.chatCache.GetChatMsgAndClean(sender)
 		if len(hmsg) > 0 {
-			input = fmt.Sprintf("对话历史(酌情参考): %s\n, 有人向你发送消息: %s\n(请以群友摘星的角色回答，尽量自然,摘星是个博学&理性的人)", hmsg,input) 
+			input = fmt.Sprintf("对话历史(酌情参考): %s\n, 有人向你发送消息: %s\n(请以群友摘星的角色回答，摘星是个博学&理性的人)", hmsg,input) 
 		}
 	}
 
