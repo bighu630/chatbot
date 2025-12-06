@@ -58,7 +58,7 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 		if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 			msg := ctx.EffectiveMessage.Text
 			if len(msg) > 0 {
-				chatCache.AddMsg(ctx.EffectiveChat.Title, ctx.EffectiveSender.LastName(), msg)
+				chatCache.AddMsg(ctx.EffectiveChat.Title, ctx.EffectiveSender.User.Username, msg)
 			}
 
 		}
@@ -107,7 +107,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	// 如果是在群组里聊天，把聊天历史加上
 
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
-		input = fmt.Sprintf("参考对话历史(你自己酌情参考): %s, 有人与你对话,消息是:%s。(请用群友摘星的角色回答，尽量自然)", g.chatCache.GetChatMsgAndClean(sender),input)  
+		input = fmt.Sprintf("参考对话历史(你自己酌情参考): %s, 有人与你对话,消息是:%s。(请用群友摘星的角色回答，尽量自然)", g.chatCache.GetChatMsgAndClean(sender),input) 
 	}
 
 	c, cancel := context.WithCancel(context.Background())
