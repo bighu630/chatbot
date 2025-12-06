@@ -7,6 +7,7 @@ import (
 	"chatbot/utils"
 	"chatbot/webHookHandler/update"
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,8 +26,9 @@ var _ ext.Handler = (*geminiHandler)(nil)
 var gai *geminiHandler
 
 type geminiHandler struct {
-	takeList map[string]*takeInfo
-	ai       ai.AiInterface
+	takeList  map[string]*takeInfo
+	chatCache *chatCache
+	ai        ai.AiInterface
 }
 
 type takeInfo struct {
@@ -38,9 +40,11 @@ type takeInfo struct {
 
 func NewGeminiHandler(cfg config.Ai) ext.Handler {
 	ai := gemini.NewGemini(cfg)
+	chatCache := NewChatCache()
 	gai = &geminiHandler{
-		takeList: make(map[string]*takeInfo),
-		ai:       ai}
+		takeList:  make(map[string]*takeInfo),
+		chatCache: chatCache,
+		ai:        ai}
 	// 如果有其他的handler与这个冲突，当前handler会返回false
 	update.GetUpdater().Register(false, gai.ai.Name(), func(b *gotgbot.Bot, ctx *ext.Context) bool {
 		// youtube music handler
@@ -50,6 +54,13 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 				return ctx.EffectiveMessage.ReplyToMessage == nil
 			}
 			return (ctx.EffectiveMessage.ReplyToMessage == nil || ctx.EffectiveMessage.ReplyToMessage.From.Username != b.Username)
+		}
+		if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
+			msg := ctx.EffectiveMessage.Text
+			if len(msg) > 0 {
+				chatCache.AddMsg(ctx.EffectiveChat.Title, ctx.EffectiveSender.LastName(), msg)
+			}
+
 		}
 		if ctx.EffectiveMessage.ReplyToMessage != nil &&
 			ctx.EffectiveMessage.ReplyToMessage.From.Username == b.Username {
@@ -75,11 +86,11 @@ func (g *geminiHandler) CheckUpdate(b *gotgbot.Bot, ctx *ext.Context) bool {
 
 func (g *geminiHandler) HandleUpdate(b *gotgbot.Bot, ctx *ext.Context) error {
 	log.Debug().Msg("get an chat message")
-	return handleChat(b, ctx, g.ai)
+	return g.handleChat(b, ctx, g.ai)
 }
 
 // 处理私聊对话
-func handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInterface) error {
+func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInterface) error {
 	sender := ctx.EffectiveSender.Username()
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		sender = ctx.EffectiveChat.Title
@@ -92,6 +103,13 @@ func handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInterface) error {
 		_, err := b.SendMessage(ctx.EffectiveChat.Id, Help, nil)
 		return err
 	}
+
+	// 如果是在群组里聊天，把聊天历史加上
+
+	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
+		input = fmt.Sprintf("参考对话历史(你自己酌情参考): %s, 有人与你对话,消息是:%s。(请用群友摘星的角色回答，尽量自然)", g.chatCache.GetChatMsgAndClean(sender),input)  
+	}
+
 	c, cancel := context.WithCancel(context.Background())
 	setBotStatusWithContext(c, b, ctx)
 	defer cancel()
