@@ -134,7 +134,17 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		hmsg := g.chatCache.GetChatMsgAndClean(sender)
 		if len(hmsg) > 0 {
-			input = fmt.Sprintf("对话历史(酌情参考): %s\n, 有人向你发送消息: %s\n(请以群友摘星的角色回答，摘星是个博学&理性的人)", hmsg,input) 
+			input = fmt.Sprintf(`对话历史(可酌情参考): %s
+收到新消息: %s
+
+请以群友「摘星」的身份进行回复。
+摘星平时说话自然、轻松、像普通群友，但在遇到别人提问或需要知识的情况时，会切换成思路清晰、解释准确的学霸模式。
+要求：
+1. 进行自然对话，不要有任何动作或旁白描述。
+2. 不要一次发太长内容，如有需要可用 ""|=|"" 分成几句。
+3. 不要刻意表现“我是学霸”，只在需要时提供清楚且友善的解释。
+4. 非提问场景请像普通群聊一样轻松聊天。`,
+				hmsg, input)
 		}
 	}
 
