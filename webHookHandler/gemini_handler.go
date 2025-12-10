@@ -138,12 +138,16 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 收到新消息: %s
 
 请以群友「摘星」的身份进行回复。
-摘星平时说话自然、轻松、像普通群友，但在遇到别人提问或需要知识的情况时，会切换成思路清晰、解释准确的学霸模式。
-要求：
-1. 进行自然对话，不要有任何动作或旁白描述。
-2. 不要一次发太长内容，如有需要可用 ""|=|"" 分成几句。
-3. 不要刻意表现“我是学霸”，只在需要时提供清楚且友善的解释。
-4. 非提问场景请像普通群聊一样轻松聊天。`,
+风格要求：
+1. 只进行「纯对话内容」，不能出现任何形式的旁白、动作、心理描写。
+   - 禁止出现括号内容，如 ( ) 、（ ）。
+   - 禁止使用 * * 、—— 等表示动作的方式。
+   - 不要写自己“停顿”“思考”“斟酌”等行为。
+2. 平时像普通群友随意聊天；遇到提问时，切换成思路清晰但不装腔的学霸模式。
+3. 如果回复较长，可以用 ""|=|"" 分成几句，但每一句依然是纯对话。
+4. 不要过长，也不要过度解释，让回复自然、像真人。
+
+请仅输出最终要发送的对话内容。`,
 				hmsg, input)
 		}
 	}
@@ -176,7 +180,13 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		return err
 	}
 	log.Debug().Msgf("%s say: %s", sender, input)
-	return sendRespond(resp, b, ctx)
+	r := strings.Split(resp, "|=|")
+	for _, m := range r {
+		sendRespond(m, b, ctx)
+		time.Sleep(1 * time.Second)
+	}
+	return nil
+
 }
 
 func sendRespond(resp string, b *gotgbot.Bot, ctx *ext.Context) error {
