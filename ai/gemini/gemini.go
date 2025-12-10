@@ -106,7 +106,7 @@ func (g *gemini) ChatWithImg(chatId string, msg string, imgType string, imgData 
 		}
 		g.chats[chatId] = cs
 	}
-	if err := g.db.Add(models.NewChat(chatId, true, msg)); err != nil {
+	if err = g.db.Add(models.NewChat(chatId, true, msg)); err != nil {
 		log.Error().Err(err).Msg("failed to add chat record")
 	}
 	for range 3 {

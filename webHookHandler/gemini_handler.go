@@ -7,6 +7,8 @@ import (
 	"chatbot/utils"
 	"chatbot/webHookHandler/update"
 	"context"
+	"fmt"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,8 +27,9 @@ var _ ext.Handler = (*geminiHandler)(nil)
 var gai *geminiHandler
 
 type geminiHandler struct {
-	takeList map[string]*takeInfo
-	ai       ai.AiInterface
+	takeList  map[string]*takeInfo
+	chatCache *chatCache
+	ai        ai.AiInterface
 }
 
 type takeInfo struct {
@@ -36,11 +39,30 @@ type takeInfo struct {
 	lastTime    time.Time
 }
 
+func TriggerWithPercentage(percentage float64) bool {
+	// 确保概率在有效范围内
+	if percentage < 0.0 {
+		percentage = 0.0
+	}
+	if percentage > 1.0 {
+		percentage = 1.0
+	}
+
+	// 生成一个0.0到1.0之间的随机浮点数
+	// rand.Float64() 返回 [0.0, 1.0) 的随机浮点数
+	randomValue := rand.Float64()
+
+	// 如果生成的随机数小于指定的概率，则触发事件
+	return randomValue < percentage
+}
+
 func NewGeminiHandler(cfg config.Ai) ext.Handler {
 	ai := gemini.NewGemini(cfg)
+	chatCache := NewChatCache()
 	gai = &geminiHandler{
-		takeList: make(map[string]*takeInfo),
-		ai:       ai}
+		takeList:  make(map[string]*takeInfo),
+		chatCache: chatCache,
+		ai:        ai}
 	// 如果有其他的handler与这个冲突，当前handler会返回false
 	update.GetUpdater().Register(false, gai.ai.Name(), func(b *gotgbot.Bot, ctx *ext.Context) bool {
 		// youtube music handler
@@ -60,7 +82,21 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 				return true
 			}
 		}
-		return strings.HasPrefix(ctx.EffectiveMessage.Text, "/chat ")
+		bc := strings.HasPrefix(ctx.EffectiveMessage.Text, "/chat ")
+		if bc {
+			return bc
+		} else {
+			if TriggerWithPercentage(0.01) && ctx.EffectiveMessage.ReplyToMessage == nil {
+				return true
+			}
+			if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
+				msg := ctx.EffectiveMessage.Text
+				if len(msg) > 0 {
+					chatCache.AddMsg(ctx.EffectiveChat.Title, ctx.EffectiveSender.User.Username, msg)
+				}
+			}
+			return false
+		}
 	})
 	return gai
 }
@@ -75,11 +111,11 @@ func (g *geminiHandler) CheckUpdate(b *gotgbot.Bot, ctx *ext.Context) bool {
 
 func (g *geminiHandler) HandleUpdate(b *gotgbot.Bot, ctx *ext.Context) error {
 	log.Debug().Msg("get an chat message")
-	return handleChat(b, ctx, g.ai)
+	return g.handleChat(b, ctx, g.ai)
 }
 
 // 处理私聊对话
-func handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInterface) error {
+func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInterface) error {
 	sender := ctx.EffectiveSender.Username()
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		sender = ctx.EffectiveChat.Title
@@ -92,6 +128,16 @@ func handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInterface) error {
 		_, err := b.SendMessage(ctx.EffectiveChat.Id, Help, nil)
 		return err
 	}
+
+	// 如果是在群组里聊天，把聊天历史加上
+
+	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
+		hmsg := g.chatCache.GetChatMsgAndClean(sender)
+		if len(hmsg) > 0 {
+			input = fmt.Sprintf("对话历史(酌情参考): %s\n, 有人向你发送消息: %s\n(请以群友摘星的角色回答，摘星是个博学&理性的人)", hmsg,input) 
+		}
+	}
+
 	c, cancel := context.WithCancel(context.Background())
 	setBotStatusWithContext(c, b, ctx)
 	defer cancel()
