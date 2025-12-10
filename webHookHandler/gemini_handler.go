@@ -86,7 +86,7 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 		if bc {
 			return bc
 		} else {
-			if TriggerWithPercentage(0.01) && ctx.EffectiveMessage.ReplyToMessage == nil {
+			if TriggerWithPercentage(0.003) && ctx.EffectiveMessage.ReplyToMessage == nil {
 				return true
 			}
 			if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
