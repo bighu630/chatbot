@@ -92,6 +92,10 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 			if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 				msg := ctx.EffectiveMessage.Text
 				if len(msg) > 0 {
+					userName := ctx.EffectiveSender.Name()
+					if userName == "" {
+						userName = ctx.EffectiveSender.Username()
+					}
 					chatCache.AddMsg(ctx.EffectiveChat.Title, ctx.EffectiveSender.User.Username, msg)
 				}
 			}
@@ -199,7 +203,7 @@ func sendRespond(resp string, b *gotgbot.Bot, ctx *ext.Context) error {
 		if err != nil {
 			log.Error().Err(err)
 			log.Debug().Msg("try to use nil opt send reply(before is Markdown)")
-			_, err = ctx.EffectiveMessage.Reply(b, resp, &gotgbot.SendMessageOpts{})
+			_, err := b.SendMessage(ctx.EffectiveChat.Id, resp, &gotgbot.SendMessageOpts{})
 			return err
 		} else {
 			return nil
