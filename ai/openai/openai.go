@@ -64,6 +64,7 @@ func NewOpenAi(cfg config.Ai) *openAi {
 
 	g := &openAi{db, client, cfg, ctx, css}
 	go g.autoDeleteDB()
+	log.Info().Msg("openai init success")
 	return g
 }
 
@@ -94,6 +95,7 @@ func (o *openAi) ChatWithImg(chatId string, msg string, imgType string, imgData 
 }
 
 func (o *openAi) Chat(chatId string, msg string) (string, error) {
+	log.Debug().Str("getMsg", msg).Msg("get an chat message")
 	var chatMessages []openai.ChatCompletionMessage
 	var ok bool
 	if chatMessages, ok = o.chats[chatId]; !ok {
