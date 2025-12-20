@@ -3,6 +3,7 @@ package handler
 import (
 	"chatbot/ai"
 	"chatbot/ai/gemini"
+	"chatbot/ai/openai"
 	"chatbot/config"
 	"chatbot/utils"
 	"chatbot/webHookHandler/update"
@@ -57,7 +58,12 @@ func TriggerWithPercentage(percentage float64) bool {
 }
 
 func NewGeminiHandler(cfg config.Ai) ext.Handler {
-	ai := gemini.NewGemini(cfg)
+	var ai ai.AiInterface
+	if len(cfg.GeminiKey) > 0 {
+		ai = gemini.NewGemini(cfg)
+	} else {
+		ai = openai.NewOpenAi(cfg)
+	}
 	chatCache := NewChatCache()
 	gai = &geminiHandler{
 		takeList:  make(map[string]*takeInfo),
