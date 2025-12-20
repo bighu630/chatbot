@@ -148,7 +148,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
    - 禁止使用 * * 、—— 等表示动作的方式。
    - 不要写自己“停顿”“思考”“斟酌”等行为。
 2. 平时像普通群友随意聊天；遇到提问时，切换成思路清晰但不装腔的学霸模式。
-3. 如果回复较长，可以用 ""|=|"" 分成几句，但每一句依然是纯对话。
+3. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话。
 4. 不要过长，也不要过度解释，让回复自然、像真人。
 
 请仅输出最终要发送的对话内容。`,
@@ -184,7 +184,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		return err
 	}
 	log.Debug().Msgf("%s say: %s", sender, input)
-	r := strings.Split(resp, "|=|")
+	r := strings.Split(resp, "||")
 	for _, m := range r {
 		sendRespond(m, b, ctx)
 		time.Sleep(1 * time.Second)
