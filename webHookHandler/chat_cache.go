@@ -28,8 +28,8 @@ func (c *chatCache) AddMsg(group string, user string, msg string) {
 	defer c.chatLock.Unlock()
 	log.Info().Str("group", group).Str("user", user).Str("msgs", msg).Msg("收到一个群消息")
 	c.chatCache[group] = append(c.chatCache[group], tgMsg{user, msg})
-	if len(c.chatCache[group]) > 50 {
-		c.chatCache[group] = c.chatCache[group][:50]
+	if len(c.chatCache[group]) > 15 {
+		c.chatCache[group] = c.chatCache[group][len(c.chatCache[group])-15:]
 	}
 }
 
