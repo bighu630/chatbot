@@ -112,7 +112,7 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 }
 
 func (g *geminiHandler) Name() string {
-	return "gemini"
+	return g.ai.Name()
 }
 
 func (g *geminiHandler) CheckUpdate(b *gotgbot.Bot, ctx *ext.Context) bool {
