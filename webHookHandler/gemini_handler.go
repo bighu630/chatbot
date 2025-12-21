@@ -142,8 +142,8 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	// 如果是在群组里聊天，把聊天历史加上
 
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
-		hmsg, l := g.chatCache.GetChatMsgAndClean(sender)
-		if l < 10 { // 历史对话长度< 10 提示词用之前的，只需要把聊天历史加上
+		hmsg, _ := g.chatCache.GetChatMsgAndClean(sender)
+		if time.Now().UnixMicro()%10 == 0 { // 有1/10的概率只提示历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 新消息: %s`, hmsg, input)
 		} else if len(hmsg) > 0 {
