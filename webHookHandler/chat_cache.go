@@ -33,13 +33,14 @@ func (c *chatCache) AddMsg(group string, user string, msg string) {
 	}
 }
 
-func (c *chatCache) GetChatMsgAndClean(group string) string {
+func (c *chatCache) GetChatMsgAndClean(group string) (string, int) {
 	c.chatLock.Lock()
 	defer c.chatLock.Unlock()
 	msgs, ok := c.chatCache[group]
 	if !ok {
-		return ""
+		return "", 0
 	}
+	l := len(msgs)
 	resp := ""
 	for _, m := range msgs {
 		resp += fmt.Sprintf("%s: %s||", m.User, m.Msg)
@@ -49,5 +50,5 @@ func (c *chatCache) GetChatMsgAndClean(group string) string {
 		log.Info().Str("chatCache", resp).Msg("读取群消息缓存")
 	}
 	c.chatCache[group] = []tgMsg{}
-	return resp
+	return resp, l
 }

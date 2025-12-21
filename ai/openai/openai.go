@@ -115,10 +115,11 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 		log.Error().Err(err).Msg("failed to add chat record")
 	}
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		resp, err := o.client.CreateChatCompletion(o.ctx, openai.ChatCompletionRequest{
-			Model:    o.cfg.OpenAiModel,
-			Messages: chatMessages,
+			Model:       o.cfg.OpenAiModel,
+			Temperature: 1.3, // 对话适用1.3
+			Messages:    chatMessages,
 		})
 		if err != nil {
 			log.Error().Err(err).Msg("failed to send message to openai")
