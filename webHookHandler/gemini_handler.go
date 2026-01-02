@@ -167,21 +167,24 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	if len(ctx.EffectiveMessage.Photo) > 0 || (ctx.EffectiveMessage.ReplyToMessage != nil && len(ctx.EffectiveMessage.ReplyToMessage.Photo) > 0) {
 		var p gotgbot.PhotoSize
 		if len(ctx.EffectiveMessage.Photo) > 0 {
-			p = ctx.EffectiveMessage.Photo[0]
+			p = ctx.EffectiveMessage.Photo[len(ctx.EffectiveMessage.Photo)-1]
 		} else {
-			p = ctx.EffectiveMessage.ReplyToMessage.Photo[0]
+			p = ctx.EffectiveMessage.ReplyToMessage.Photo[len(ctx.EffectiveMessage.ReplyToMessage.Photo)-1]
 		}
 		itype, data, err := utils.DownloadImgByFileID(p.FileId, b)
 		if err != nil {
 			log.Error().Err(err).Msg("download img error")
 		}
 		if len(data) > 0 {
-			imgInfo, err := g.imgHandlerAi.HandleTextWithImg("描述这张图片的信息，给其他ai使用", itype, data)
+			imgInfo, err := g.imgHandlerAi.HandleTextWithImg("用中文描述这张图片的信息，给其他ai使用", itype, data)
 			if err != nil {
 				log.Error().Err(err).Msg("img info error")
 			} else {
 				log.Debug().Str("imgInfo", imgInfo).Msg("get img info success")
-				imgInfo += "\n对话包含图片内容"+imgInfo  
+				imgInfo = strings.ReplaceAll(imgInfo, "*", "")
+				imgInfo = strings.ReplaceAll(imgInfo, "-", "")
+				imgInfo = strings.ReplaceAll(imgInfo, "\n\n", "\n")
+				input += "\n对话包含图片内容" + imgInfo
 			}
 		}
 	}
@@ -190,24 +193,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	setBotStatusWithContext(c, b, ctx)
 	defer cancel()
 
-	var imgType string
-	var imgdata []byte
-	var resp string
-	var err error
-	if len(ctx.EffectiveMessage.Photo) > 0 {
-		imgType, imgdata, err = utils.DownloadImgByFileID(ctx.EffectiveMessage.Photo[len(ctx.EffectiveMessage.Photo)-1].FileId, b)
-		if err != nil {
-			log.Warn().Err(err).Msg("download img error")
-		} else {
-			log.Info().Str("imgType", imgType).Any("data len", len(imgdata)).Msg("download img success")
-		}
-	}
-
-	if len(imgdata) > 0 && imgType != "" {
-		resp, err = ai.ChatWithImg(sender, input, imgType, imgdata)
-	} else {
-		resp, err = ai.Chat(sender, input)
-	}
+	resp, err := ai.Chat(sender, input)
 	if err != nil {
 		log.Error().Err(err).Msg("gemini chat error")
 		ctx.EffectiveMessage.Reply(b, "gemini chat error", nil)

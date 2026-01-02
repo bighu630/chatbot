@@ -72,7 +72,7 @@ func InitDB() *gorm.DB {
 		}
 		log.Info().Msg("connect database success")
 	default:
-		panic("not supported database type, please check your configuration")
+		// panic("not supported database type, please check your configuration")
 	}
 	return gormDB
 }

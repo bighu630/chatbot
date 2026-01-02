@@ -5,12 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+
+	_ "golang.org/x/image/bmp"
+	_ "golang.org/x/image/webp"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/google/uuid"
@@ -75,7 +84,11 @@ func DownloadImgByFileID(fileID string, b *gotgbot.Bot) (string, []byte, error) 
 		return "", nil, err
 	}
 	imgData := buf.Bytes()
-	return ext, imgData, nil
+	imgData, err = ToPNG(ext, imgData)
+	if err != nil {
+		return "", nil, err
+	}
+	return "image/png", imgData, nil
 }
 
 func DownloadAduioByFileID(fileID string, b *gotgbot.Bot) (*string, error) {
@@ -160,4 +173,28 @@ func EscapeMarkdownChars(input string) string {
 		builder.WriteRune(char) // 添加字符
 	}
 	return builder.String()
+}
+
+func ToPNG(format string, data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, errors.New("empty image data")
+	}
+
+	format = strings.ToLower(strings.TrimPrefix(format, "."))
+
+	// 解码（实际不依赖 format，而是靠 magic header）
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	enc := png.Encoder{
+		CompressionLevel: png.BestCompression,
+	}
+	if err := enc.Encode(&buf, img); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }

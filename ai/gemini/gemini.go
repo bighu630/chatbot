@@ -72,12 +72,12 @@ func (g gemini) Name() string {
 
 func (g *gemini) HandleTextWithImg(msg string, imgType string, imgData []byte) (string, error) {
 	resp, err := g.client.Models.GenerateContent(g.ctx, g.modelName,
-		[]*genai.Content{genai.NewContentFromBytes(imgData, imgType, genai.RoleUser)}, nil)
+		[]*genai.Content{genai.NewContentFromBytes(imgData, imgType, genai.RoleUser), genai.Text(msg)[0]}, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("could not get response from gemini")
 		return "", err
 	}
-	result := fmt.Sprint(resp.Candidates[0].Content.Parts[0])
+	result := fmt.Sprint(resp.Candidates[0].Content.Parts[0].Text)
 	return result, nil
 }
 
@@ -90,7 +90,7 @@ func (g *gemini) HandleText(msg string) (string, error) {
 		log.Error().Err(err).Msg("could not get response from gemini")
 		return "", err
 	}
-	result := fmt.Sprint(resp.Candidates[0].Content.Parts[0])
+	result := fmt.Sprint(resp.Candidates[0].Content.Parts[0].Text)
 	return result, nil
 }
 

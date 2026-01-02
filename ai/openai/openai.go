@@ -46,20 +46,23 @@ func NewOpenAi(cfg config.Ai) *openAi {
 	}
 
 	css := make(map[string][]openai.ChatCompletionMessage)
-	for _, u := range db.GetAllUser() {
-		msgs, err := db.GetMsgByTime(time.Now().Add(-saveTime), time.Now(), u)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to get chat record")
-			continue
+	if db != nil {
+		for _, u := range db.GetAllUser() {
+			msgs, err := db.GetMsgByTime(time.Now().Add(-saveTime), time.Now(), u)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to get chat record")
+				continue
+			}
+			var chatMessages []openai.ChatCompletionMessage
+			for _, m := range msgs {
+				chatMessages = append(chatMessages, openai.ChatCompletionMessage{
+					Role:    getRole(m.IsUser),
+					Content: m.Msg,
+				})
+			}
+			css[u] = chatMessages
 		}
-		var chatMessages []openai.ChatCompletionMessage
-		for _, m := range msgs {
-			chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-				Role:    getRole(m.IsUser),
-				Content: m.Msg,
-			})
-		}
-		css[u] = chatMessages
+
 	}
 
 	g := &openAi{db, client, cfg, ctx, css}
@@ -110,9 +113,11 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 		Role:    openai.ChatMessageRoleUser,
 		Content: msg,
 	})
+	if o.db != nil {
 
-	if err := o.db.Add(models.NewChat(chatId, true, msg)); err != nil {
-		log.Error().Err(err).Msg("failed to add chat record")
+		if err := o.db.Add(models.NewChat(chatId, true, msg)); err != nil {
+			log.Error().Err(err).Msg("failed to add chat record")
+		}
 	}
 
 	for range 3 {
