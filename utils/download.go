@@ -34,6 +34,7 @@ func (c *client) sendRequest(req *http.Request) (*http.Response, error) {
 	return c.httpClient.Do(req)
 }
 
+// return imgtype,data,err
 func DownloadImgByFileID(fileID string, b *gotgbot.Bot) (string, []byte, error) {
 	url := fmt.Sprintf("%s%s/getFile?file_id=%s", baseUrl, b.Token, fileID)
 	filePathReq, err := http.NewRequest("GET", url, nil)

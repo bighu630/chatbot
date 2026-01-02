@@ -28,9 +28,10 @@ var _ ext.Handler = (*geminiHandler)(nil)
 var gai *geminiHandler
 
 type geminiHandler struct {
-	takeList  map[string]*takeInfo
-	chatCache *chatCache
-	ai        ai.AiInterface
+	takeList     map[string]*takeInfo
+	chatCache    *chatCache
+	ai           ai.AiInterface
+	imgHandlerAi ai.AiInterface
 }
 
 type takeInfo struct {
@@ -59,16 +60,15 @@ func TriggerWithPercentage(percentage float64) bool {
 
 func NewGeminiHandler(cfg config.Ai) ext.Handler {
 	var ai ai.AiInterface
-	if len(cfg.GeminiKey) > 0 {
-		ai = gemini.NewGemini(cfg)
-	} else {
-		ai = openai.NewOpenAi(cfg)
-	}
+	ai = openai.NewOpenAi(cfg)
 	chatCache := NewChatCache()
 	gai = &geminiHandler{
 		takeList:  make(map[string]*takeInfo),
 		chatCache: chatCache,
 		ai:        ai}
+	if cfg.GeminiKey != "" {
+		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
+	}
 	// 如果有其他的handler与这个冲突，当前handler会返回false
 	update.GetUpdater().Register(false, gai.ai.Name(), func(b *gotgbot.Bot, ctx *ext.Context) bool {
 		// youtube music handler
@@ -162,6 +162,27 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 
 请仅输出最终要发送的对话内容。`,
 				hmsg, input)
+		}
+	}
+	if len(ctx.EffectiveMessage.Photo) > 0 || (ctx.EffectiveMessage.ReplyToMessage != nil && len(ctx.EffectiveMessage.ReplyToMessage.Photo) > 0) {
+		var p gotgbot.PhotoSize
+		if len(ctx.EffectiveMessage.Photo) > 0 {
+			p = ctx.EffectiveMessage.Photo[0]
+		} else {
+			p = ctx.EffectiveMessage.ReplyToMessage.Photo[0]
+		}
+		itype, data, err := utils.DownloadImgByFileID(p.FileId, b)
+		if err != nil {
+			log.Error().Err(err).Msg("download img error")
+		}
+		if len(data) > 0 {
+			imgInfo, err := g.imgHandlerAi.HandleTextWithImg("描述这张图片的信息，给其他ai使用", itype, data)
+			if err != nil {
+				log.Error().Err(err).Msg("img info error")
+			} else {
+				log.Debug().Str("imgInfo", imgInfo).Msg("get img info success")
+				imgInfo += "\n对话包含图片内容"+imgInfo  
+			}
 		}
 	}
 
