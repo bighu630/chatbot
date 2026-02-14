@@ -143,7 +143,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		hmsg, _ := g.chatCache.GetChatMsgAndClean(sender)
-		if time.Now().UnixMicro()%10 == 0 { // 有1/10的概率只提示历史对话
+		if time.Now().UnixMicro()%30 == 0 { // 有1/30的概率只提示历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 新消息: %s`, hmsg, input)
 		} else if len(hmsg) > 0 {
@@ -159,6 +159,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 2. 平时像普通群友随意聊天；遇到提问时，切换成思路清晰但不装腔的学霸模式。
 3. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话。
 4. 不要过长，也不要过度解释，让回复自然、像真人。
+5. 你可以发送 "/vmo 歌曲名 歌手名" 歌手名可以不传 来实现点歌(仅在有需要的时候调用)，但是这条消息必须在一个分句里面，且不能有多余字符
 
 请仅输出最终要发送的对话内容。`,
 				hmsg, input)
