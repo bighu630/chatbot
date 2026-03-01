@@ -6,3 +6,4 @@ data/
 .vscode/
 *.log
 .env
+/bin
