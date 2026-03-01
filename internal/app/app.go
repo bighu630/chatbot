@@ -13,24 +13,27 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 )
 
-func Start() {
-	logger.Init(config.GlobalConfig.Log)
+func Start(cfg *config.Config) {
+	logger.Init(cfg.Log)
+
+	storage.Configure(&cfg.Storage)
 	storage.InitDB()
-	tgWebHook := bot.NewWebHookConnect(config.GlobalConfig.WebHookConfig)
-	tencent.NewTencentClient(config.GlobalConfig.TencentConfig)
+
+	tgWebHook := bot.NewWebHookConnect(cfg.WebHookConfig)
+	tencent.NewTencentClient(cfg.TencentConfig)
 
 	var ymbHandler ext.Handler
 	var gaiHandler ext.Handler
 	var quotationsHandler ext.Handler
-	if config.GlobalConfig.Ytdlp.Enable {
-		ymbHandler = handler.NewYoutubeHandler(config.GlobalConfig.Ytdlp.Path)
+	if cfg.Ytdlp.Enable {
+		ymbHandler = handler.NewYoutubeHandler(cfg.Ytdlp.Path)
 		tgWebHook.RegisterHandler(ymbHandler)
 	}
-	if config.GlobalConfig.Ai.Enable {
-		gaiHandler = handler.NewGeminiHandler(config.GlobalConfig.Ai)
+	if cfg.Ai.Enable {
+		gaiHandler = handler.NewGeminiHandler(cfg.Ai)
 		tgWebHook.RegisterHandler(gaiHandler)
 	}
-	if config.GlobalConfig.Storage.Enable {
+	if cfg.Storage.Enable {
 		quotationsHandler = quotation.NewQuotationsHandler()
 		tgWebHook.RegisterHandler(quotationsHandler)
 	}

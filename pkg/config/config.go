@@ -6,9 +6,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-var GlobalConfig *config
-
-type config struct {
+// Config holds all application configuration loaded from config.toml.
+type Config struct {
 	WebHookConfig WebHookConfig `toml:"webHookConfig"`
 	Log           Log           `toml:"log"`
 	Ytdlp         Ytdlp         `toml:"ytdlp"`
@@ -72,18 +71,11 @@ type SqlDBConfig struct {
 	Charset  string `mapstructure:"charset" yaml:"charset" toml:"charset"`
 }
 
-func init() {
-	GlobalConfig = new(config)
-	if _, err := toml.DecodeFile("config.toml", GlobalConfig); err != nil {
-		fmt.Println("failed to decode config.toml")
-		return
+// Load reads and parses the TOML config file at path.
+func Load(path string) (*Config, error) {
+	cfg := new(Config)
+	if _, err := toml.DecodeFile(path, cfg); err != nil {
+		return nil, fmt.Errorf("load config %s: %w", path, err)
 	}
-}
-
-func LoadConfig(path string) error {
-	GlobalConfig = new(config)
-	if _, err := toml.DecodeFile(path, GlobalConfig); err != nil {
-		return fmt.Errorf("failed to decode config.toml: %w", err)
-	}
-	return nil
+	return cfg, nil
 }

@@ -51,11 +51,20 @@ func InitWithConfig(cfg config.SqlDBConfig) *gorm.DB {
 	return gormDB
 }
 
+// Configure sets the storage configuration before the first InitDB call.
+// It must be called once from app startup before any repo initialisation.
+func Configure(cfg *config.StorageConfig) {
+	DBConfig = cfg
+}
+
 func InitDB() *gorm.DB {
 	if db := DB; db != nil {
 		return db
 	}
-	DBConfig = &config.GlobalConfig.Storage
+	if DBConfig == nil {
+		log.Error().Msg("storage not configured – call storage.Configure() before InitDB()")
+		return nil
+	}
 	var gormDB *gorm.DB
 	var err error
 	switch DBConfig.Provider {
