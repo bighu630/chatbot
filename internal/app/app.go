@@ -9,18 +9,30 @@ import (
 	"chatbot/internal/storage"
 	"chatbot/pkg/config"
 	"chatbot/pkg/logger"
+	"fmt"
 
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
+	"github.com/rs/zerolog/log"
 )
 
-func Start(cfg *config.Config) {
+// Start wires all components together and runs the bot.
+// It returns an error if any required component fails to initialise.
+func Start(cfg *config.Config) error {
 	logger.Init(cfg.Log)
 
 	storage.Configure(&cfg.Storage)
-	storage.InitDB()
+	if db := storage.InitDB(); db == nil {
+		return fmt.Errorf("storage: failed to initialise database")
+	}
 
 	tgWebHook := bot.NewWebHookConnect(cfg.WebHookConfig)
-	tencent.NewTencentClient(cfg.TencentConfig)
+	if tgWebHook == nil {
+		return fmt.Errorf("bot: failed to create webhook connection")
+	}
+
+	if _, err := tencent.NewTencentClient(cfg.TencentConfig); err != nil {
+		log.Warn().Err(err).Msg("tencent client unavailable; voice transcription disabled")
+	}
 
 	var ymbHandler ext.Handler
 	var gaiHandler ext.Handler
@@ -39,7 +51,7 @@ func Start(cfg *config.Config) {
 	}
 	quotationCtrl, err := quotation.NewQuotationHandler()
 	if err != nil {
-		print("无法初始化 --语录控制器-- ", err)
+		return fmt.Errorf("quotation handler: %w", err)
 	}
 	quotationCtrl.Register(tgWebHook.RegisterHandlerWithCmd)
 	tgWebHook.RegisterHandler(quotationCtrl)
@@ -48,17 +60,16 @@ func Start(cfg *config.Config) {
 	// audioHandler := handler.NewAudioHandler()
 	// tgWebHook.RegisterHandler(audioHandler)
 	timer := scheduler.NewTimekeeper()
-
 	timer.RegisterCmd(tgWebHook.RegisterHandlerWithCmd)
 	timer.Start()
 
-	// help帮助
 	tgWebHook.RegisterHandlerWithCmd(handler.NewHelpHandler(), "help")
 
 	tgVerify := handler.NewTgJoinVerificationHandler()
 	tgWebHook.RegisterHandler(tgVerify)
 	tgWebHook.RegisterHandler(tgVerify.NewCallbackHander())
 
-	// tgAutoCall.Start()
+	// blocks until webhook stops
 	tgWebHook.Start()
+	return nil
 }

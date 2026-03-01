@@ -18,5 +18,7 @@ func main() {
 	}
 
 	fmt.Println("hello telegram bot")
-	app.Start(cfg)
+	if err := app.Start(cfg); err != nil {
+		log.Fatalf("bot exited with error: %v", err)
+	}
 }
