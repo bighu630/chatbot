@@ -89,6 +89,9 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 			}
 		}
 		bc := strings.HasPrefix(ctx.EffectiveMessage.Text, "/chat ")
+		if ctx.EffectiveMessage.Text == "" && len(ctx.EffectiveMessage.Photo) == 0 {
+			return false
+		}
 		if bc {
 			return bc
 		} else {
