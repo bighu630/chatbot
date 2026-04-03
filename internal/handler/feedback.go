@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func NewFeedbackHandler(notifier *admin.FeedbackNotifier) handlers.Response {
+func NewFeedbackHandler(notifier *admin.Notifier) handlers.Response {
 	return func(b *gotgbot.Bot, ctx *ext.Context) error {
 		if notifier == nil || !notifier.Enabled() {
 			_, err := b.SendMessage(ctx.EffectiveChat.Id, "反馈功能暂未配置，请稍后再试。", nil)

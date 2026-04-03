@@ -21,6 +21,7 @@ type WebHookConnect struct {
 	webHookOpts *ext.WebhookOpts
 	token       string
 	domain      string
+	onStarted   func(*gotgbot.Bot) error
 }
 
 type webHookUpdate struct {
@@ -98,6 +99,10 @@ func (w *WebHookConnect) RegisterHandlerWithCmd(handler handlers.Response, cmd s
 	w.dispatcher.AddHandler(handlers.NewCommand(cmd, handler))
 }
 
+func (w *WebHookConnect) SetOnStarted(fn func(*gotgbot.Bot) error) {
+	w.onStarted = fn
+}
+
 func (w *WebHookConnect) Start() {
 	err := w.updater.StartWebhook(w.bot, "youtubeMusic/"+w.token, *w.webHookOpts)
 	if err != nil {
@@ -112,6 +117,11 @@ func (w *WebHookConnect) Start() {
 		log.Panic().Stack().Err(err).Msg("set bot webhook error")
 	}
 	log.Info().Msg("start webhook success")
+	if w.onStarted != nil {
+		if err := w.onStarted(w.bot); err != nil {
+			log.Error().Err(err).Msg("failed to notify admin about service start")
+		}
+	}
 
 	w.updater.Idle()
 }
