@@ -41,6 +41,23 @@ type takeInfo struct {
 	lastTime    time.Time
 }
 
+func isChatCommand(text string) bool {
+	command := firstToken(text)
+	return command == "/chat" || strings.HasPrefix(command, "/chat@")
+}
+
+func isSlashCommand(text string) bool {
+	return strings.HasPrefix(firstToken(text), "/")
+}
+
+func firstToken(text string) string {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
 func TriggerWithPercentage(percentage float64) bool {
 	// 确保概率在有效范围内
 	if percentage < 0.0 {
@@ -73,9 +90,14 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 	update.GetUpdater().Register(false, gai.ai.Name(), func(b *gotgbot.Bot, ctx *ext.Context) bool {
 		// youtube music handler
 		if ctx.EffectiveChat.Type == "private" {
-			// 如果引用为空，或者引用的对象不是bot
-			if strings.HasPrefix(ctx.EffectiveMessage.Text, "/") || ctx.CallbackQuery != nil {
+			if ctx.CallbackQuery != nil {
+				return false
+			}
+			if isChatCommand(ctx.EffectiveMessage.Text) {
 				return ctx.EffectiveMessage.ReplyToMessage == nil
+			}
+			if isSlashCommand(ctx.EffectiveMessage.Text) {
+				return false
 			}
 			return (ctx.EffectiveMessage.ReplyToMessage == nil || ctx.EffectiveMessage.ReplyToMessage.From.Username != b.Username)
 		}
@@ -88,7 +110,7 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 				return true
 			}
 		}
-		bc := strings.HasPrefix(ctx.EffectiveMessage.Text, "/chat ")
+		bc := isChatCommand(ctx.EffectiveMessage.Text)
 		if ctx.EffectiveMessage.Text == "" && len(ctx.EffectiveMessage.Photo) == 0 {
 			return false
 		}
