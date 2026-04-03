@@ -38,11 +38,12 @@ func (n *Notifier) NotifyFeedback(b *gotgbot.Bot, meta FeedbackMeta) error {
 	}
 
 	infoMessage := buildFeedbackInfo(meta)
+	contentMessage := buildFeedbackContent(meta.Content)
 	return n.sendMessages(b, func(chatID int64) error {
 		if _, err := b.SendMessage(chatID, infoMessage, nil); err != nil {
 			return fmt.Errorf("info message: %w", err)
 		}
-		if _, err := b.SendMessage(chatID, meta.Content, nil); err != nil {
+		if _, err := b.SendMessage(chatID, contentMessage, nil); err != nil {
 			return fmt.Errorf("content message: %w", err)
 		}
 		return nil
@@ -85,8 +86,14 @@ func buildFeedbackInfo(meta FeedbackMeta) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, "反馈正文见下一条消息。")
-	lines = append(lines, feedbackSeparator)
 	return strings.Join(lines, "\n")
+}
+
+func buildFeedbackContent(content string) string {
+	return strings.Join([]string{
+		content,
+		feedbackSeparator,
+	}, "\n")
 }
 
 func buildServiceStartedMessage() string {
