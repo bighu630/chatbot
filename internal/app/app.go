@@ -12,6 +12,7 @@ import (
 	"chatbot/pkg/logger"
 	"fmt"
 
+	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/rs/zerolog/log"
 )
@@ -31,7 +32,15 @@ func Start(cfg *config.Config) error {
 		return fmt.Errorf("bot: failed to create webhook connection")
 	}
 	adminNotifier := admin.NewNotifier(cfg.Admin)
-	tgWebHook.SetOnStarted(adminNotifier.NotifyServiceStarted)
+	tgWebHook.SetOnStarted(func(b *gotgbot.Bot) error {
+		if err := bot.RegisterBotCommands(b); err != nil {
+			return fmt.Errorf("register bot commands: %w", err)
+		}
+		if err := adminNotifier.NotifyServiceStarted(b); err != nil {
+			return fmt.Errorf("notify service started: %w", err)
+		}
+		return nil
+	})
 
 	if _, err := tencent.NewTencentClient(cfg.TencentConfig); err != nil {
 		log.Warn().Err(err).Msg("tencent client unavailable; voice transcription disabled")
