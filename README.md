@@ -1,73 +1,190 @@
-# tg bot
+# chatbot
 
-## 功能
+一个基于 Telegram 的群聊机器人项目。
 
-下载youtube music中的音乐连接
+当前最重要的能力是 `chat`:
+- 在群聊中和群友对话
+- 结合最近群消息形成短上下文
+- 以更像普通群友的方式回复
 
-与gemini对话
+除聊天外，项目还包含：
+- YouTube Music 链接下载
+- 语录功能
+- 入群验证
+- 反馈转管理员
+- 定时任务框架
 
-与群友交互
+## 当前状态
 
-chatgpt待续...
+代码当前的实际行为和旧 README 有一些差异，以下说明以仓库里的实现为准。
 
-## 使用教程（tg用户）
+- 聊天入口已经接入，主逻辑位于 `internal/handler/chat.go`
+- AI provider 抽象存在，当前聊天实现实际走 OpenAI client
+- 图片消息支持先做图像描述，再并入聊天输入
+- Telegram 接入默认使用 webhook
 
-群互动机器人
+## 核心功能
 
-用法：
+### 1. 群聊 AI 对话
 
-    cp语录:
+支持以下触发方式：
+- 私聊 bot
+- 群聊中发送 `/chat <消息>`
+- 在群里直接回复 bot 的消息
+- 在群里以 `@bot` 开头提及 bot
+- 极低概率随机插话
 
-        1. 引用其他人的消息
+群聊普通消息在未触发聊天时会先进入短期缓存；一旦触发聊天，bot 会把最近一批群消息拼成上下文，连同新消息一起发给 AI。
 
-        2. 回复关键词 [mua,mua~,摸摸,抱抱] 等
+### 2. 图片辅助聊天
 
-        3. 有60%概率触发，摘星会引用你引用的话，并发🍬
+如果当前消息或被回复消息里包含图片，程序会先调用 Gemini 做图片描述，再把描述文本附加到聊天输入中，帮助 AI 理解图片内容。
 
-    骂人：
+### 3. YouTube Music 下载
 
-        1. 引用其他人的消息
+启用后，bot 会识别消息中的 YouTube Music 链接并尝试下载音频。
 
-        2. 回复 [骂他，咬他]，其中 他 可以替换为 她 它 ta
+### 4. 语录与互动
 
-        3. 100%触发,摘星会引用你引用而话，并骂他
+项目包含群互动与语录相关能力，主要代码在 `internal/handler/quotation`。
 
-    chatgpt：
+### 5. 反馈
 
-        1. 在群聊中使用 `/chat msg` 可以与摘星聊天，MSG可以是任意内容
+用户可以通过 `/feedback <内容>` 提交反馈。
 
-        2. 在群聊里引用摘星的话，摘星会以为你在和他聊天，@则不会
+bot 会将反馈分两条消息发送给管理员：
+- 第一条是带分隔符的来源信息
+- 第二条是用户反馈原文，便于管理员直接复制
 
-        3. 私聊摘星，摘星会与你对话
+## 运行方式
 
-    youtubeMusic下载：
+### 环境要求
 
-        私聊或者群聊里发送youtubeMusic链接，摘星会下载音乐并唱给你听
+- Go 1.24.5 或更高
+- 一个 Telegram Bot Token
+- 可被 Telegram 访问到的 HTTPS webhook 地址
+- 已配置的 AI 服务
 
+### 1. 准备配置
 
-> 摘星是bot的名字：@ytbmusicPlaerBot
+复制配置文件：
 
-另外你们的start是作者最大的动力😀
+```bash
+cp "config copy.toml" config.toml
+```
 
-## 使用教程（服务端）
+按需填写：
+- `webHookConfig.token`
+- `webHookConfig.address`
+- `webHookConfig.domain`
+- `webHookConfig.secret`
+- `ai.*`
+- `storage.*`
 
-修改config copy.toml为config.toml
+如果不想把 token 写进文件，也可以通过环境变量提供：
+- `TOKEN`
+- `WEBHOOK_ADDRESS`
+- `WEBHOOK_DOMAIN`
+- `WEBHOOK_SECRET`
 
-token为bot的token
+### 2. 构建
 
-address为本地监听的ip：端口
+```bash
+make
+```
 
-domain为tg服务端向你发送请求的域名，注意不要带https前缀，tg会使用https访问，所以这里不要填ip
+或构建所有可执行程序：
 
-连接tg后直接发送音乐的分享链接就可以
+```bash
+make all
+```
 
-## youtube music
+### 3. 启动
 
-向机器人发送音乐的分享链接
-bot会自动下载
+```bash
+go run ./cmd/bot -config ./config.toml
+```
 
-## chat 使用
+## 配置说明
 
-私聊chat 会自动触发chat功能，bot会使用gemini（目前不支持openai）进行答复
+### `webHookConfig`
 
-在群组中 使用 "/chat " 开头的消息会被bot识别，注意后面有个空格
+- `token`: Telegram bot token
+- `address`: 本地 webhook 监听地址，例如 `:8080`
+- `domain`: Telegram 可访问到的 HTTPS 域名
+- `secret`: webhook secret，可留空自动生成
+- `certFile` / `keyFile`: 直连 HTTPS 时使用
+
+### `ai`
+
+- `enable`: 是否启用聊天能力
+- `openaiKey`: OpenAI 或兼容接口的 API Key
+- `openaiModel`: 聊天模型名
+- `openaiBaseUrl`: 兼容接口地址
+- `geminiKey`: 用于图片理解
+- `geminiModel`: Gemini 模型名
+
+说明：
+- 当前聊天主链路会初始化 OpenAI client
+- 如果配置了 `geminiKey`，图片会额外走 Gemini 做描述
+
+### `admin`
+
+- `chatIDs`: 接收用户反馈的管理员 chat id 列表
+
+### `storage`
+
+支持：
+- `sqlite`
+- `mysql`
+
+聊天记录会持久化到数据库中，用于恢复部分上下文。
+
+## 项目结构
+
+```text
+cmd/
+  bot/                Telegram bot 入口
+internal/
+  app/                应用装配
+  ai/                 AI provider 抽象与实现
+  bot/                Telegram webhook / polling 接入
+  handler/            消息处理逻辑
+  scheduler/          定时任务
+  storage/            数据库与 repo
+pkg/
+  config/             配置加载
+  logger/             日志初始化
+  util/               下载等通用工具
+```
+
+## 聊天链路
+
+主要流程：
+
+1. `cmd/bot/main.go` 读取配置并启动应用
+2. `internal/app/app.go` 装配 handler、存储、调度器和 webhook
+3. `internal/handler/chat.go` 判断消息是否触发聊天
+4. 触发后拼接群聊上下文、图片描述和用户输入
+5. 调用 AI provider
+6. 将 AI 回复拆分后发送回 Telegram
+
+## 已知事实
+
+- README 以当前代码为准，不再沿用旧描述
+- 默认启动路径是 webhook，不是 polling
+- 群聊上下文目前是内存短缓存，不是完整会话编排
+- AI 行为风格主要由 `internal/handler/chat.go` 中的 prompt 控制
+
+## 开发建议
+
+如果后续主要维护 `chat`，优先关注这些位置：
+- `internal/handler/chat.go`
+- `internal/handler/cache.go`
+- `internal/handler/update/update.go`
+- `internal/ai/openai/client.go`
+- `internal/app/app.go`
+
+## 备注
+
+初始化维护说明见 `docs/INIT.md`。

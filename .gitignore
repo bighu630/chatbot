@@ -7,3 +7,5 @@ data/
 *.log
 .env
 /bin
+docs/SESSION_HANDOFF.md
+scripts/deploy_node3.sh

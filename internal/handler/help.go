@@ -36,6 +36,12 @@ const Help = `用法：
 
         私聊或者群聊里发送youtubeMusic链接，摘星会下载音乐并唱给你听
 
+    反馈：
+
+        1. 使用 "/feedback 反馈内容" 提交反馈
+
+        2. bot 会把你的反馈转发给管理员
+
 
 > 摘星是bot的名字：@ytbmusicPlaerBot
 > 在这里可以看到摘星的源代码：https://github.com/bighu630/tg_bot

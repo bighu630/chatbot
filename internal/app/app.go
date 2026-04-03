@@ -1,6 +1,7 @@
 package app
 
 import (
+	"chatbot/internal/admin"
 	"chatbot/internal/bot"
 	"chatbot/internal/cloud/tencent"
 	handler "chatbot/internal/handler"
@@ -68,6 +69,7 @@ func Start(cfg *config.Config) error {
 	tgVerify := handler.NewTgJoinVerificationHandler()
 	tgWebHook.RegisterHandler(tgVerify)
 	tgWebHook.RegisterHandler(tgVerify.NewCallbackHander())
+	tgWebHook.RegisterHandlerWithCmd(handler.NewFeedbackHandler(admin.NewFeedbackNotifier(cfg.Admin)), "feedback")
 
 	// blocks until webhook stops
 	tgWebHook.Start()

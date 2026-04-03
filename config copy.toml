@@ -1,38 +1,41 @@
 [webHookConfig]
-token = "7618732993:AAFZ5wPteVzRI4Ne6MEMCGHSWr0K7sRheGw"   # 机器人token
-address = "localhost:8080"  # 服务地址
-domain = ""   # 内网穿透后的外网域名
-secret = ""  # 任意字符串，可留空，由程序自动生成
-certFile=""  # 不使用内网穿透转发一定要配置tls ， tg只接受tls连接
-keyFile=""
+token = ""           # Telegram bot token；也可走环境变量 TOKEN
+address = ":8080"    # webhook 本地监听地址
+domain = ""          # Telegram 可访问到的 HTTPS 域名，不带 https://
+secret = ""          # webhook secret，可留空，由程序自动生成
+certFile = ""        # 直连 HTTPS 时使用证书
+keyFile = ""
 
 [log]
 timeFormat = ""  # 可留空
-path = ""  # 留空表示不记录
-level = 0 # zero log 等级 0是最低
+path = ""        # 留空表示输出到默认位置
+level = 0        # zerolog 级别，0 为最低
 
 [ytdlp]
 enable = false
-path = "" # default: yt-dlp
+path = "" # 默认使用 yt-dlp
 
 [ai]
 enable = false
 geminiKey = ""
-geminiModel = ""
+geminiModel = "gemini-2.5-flash"
 openaiKey = ""
 openaiModel = ""
-openaiBaseUrl=""
+openaiBaseUrl = ""
+
+[admin]
+chatIDs = []
 
 
 [storage]
 enable = false
-provider="mysql"
+provider = "sqlite"
 
 [storage.sqlite]
 path = "./data"
-name = "bot.om"
+name = "bot.db"
 quotations = "quotations.db"
-host = ""
+host = ""      # mysql 时使用
 user = ""
 password = ""
 dbname = ""

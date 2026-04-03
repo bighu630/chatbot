@@ -12,8 +12,13 @@ type Config struct {
 	Log           Log           `toml:"log"`
 	Ytdlp         Ytdlp         `toml:"ytdlp"`
 	Ai            Ai            `toml:"ai"`
+	Admin         AdminConfig   `toml:"admin"`
 	Storage       StorageConfig `toml:"storage"`
 	TencentConfig TencentConfig `toml:"tencent"`
+}
+
+type AdminConfig struct {
+	ChatIDs []int64 `toml:"chatIDs"`
 }
 
 type WebHookConfig struct {
