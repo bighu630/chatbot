@@ -13,6 +13,7 @@ import (
 type Chat interface {
 	Add(chat *model.Chat) error
 	GetMsgByTime(from, to time.Time, user string) ([]*model.Chat, error)
+	CountMsgByTime(from, to time.Time, user string, isUser bool) (int64, error)
 	GetAllUser() []string
 	DeleteMsgBeforeTime(from time.Time) error
 }
@@ -53,6 +54,14 @@ func (c *chatStorage) GetMsgByTime(from, to time.Time, user string) ([]*model.Ch
 		return nil, err
 	}
 	return chat, nil
+}
+
+func (c *chatStorage) CountMsgByTime(from, to time.Time, user string, isUser bool) (int64, error) {
+	var count int64
+	err := c.db.Model(&model.Chat{}).
+		Where("time >= ? AND time <= ? AND user_name = ? AND is_user = ?", from, to, user, isUser).
+		Count(&count).Error
+	return count, err
 }
 
 func (c *chatStorage) GetAllUser() []string {

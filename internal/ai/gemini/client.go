@@ -8,6 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -15,7 +18,8 @@ import (
 )
 
 const (
-	saveTime = 100 * time.Hour
+	saveTime               = 100 * time.Hour
+	historyLoadMaxParallel = 8
 )
 
 var _ ai.AiInterface = (*gemini)(nil)
@@ -43,27 +47,96 @@ func NewGemini(cfg config.Ai) *gemini {
 		modelName = "gemini-2.5-flash"
 	}
 
-	css := make(map[string]*genai.Chat)
-	for _, u := range db.GetAllUser() {
-		msgs, err := db.GetMsgByTime(time.Now().Add(-saveTime), time.Now(), u)
-		if err != nil {
-			log.Error().Err(err).Msg("failed to get chat record")
-			continue
-		}
-		history := []*genai.Content{}
-		for _, m := range msgs {
-			if m.IsUser {
-				history = append(history, genai.NewContentFromText(m.Msg, genai.RoleUser))
-			} else {
-				history = append(history, genai.NewContentFromText(m.Msg, genai.RoleModel))
-			}
-		}
-		chat, _ := client.Chats.Create(ctx, modelName, nil, history)
-		css[u] = chat
-	}
+	css := loadChatHistory(ctx, client, db, modelName)
 	g := &gemini{client, css, modelName, ctx, db}
 	go g.autoDeleteDB()
 	return g
+}
+
+func loadChatHistory(ctx context.Context, client *genai.Client, db repo.Chat, modelName string) map[string]*genai.Chat {
+	users := db.GetAllUser()
+	if len(users) == 0 {
+		return map[string]*genai.Chat{}
+	}
+
+	now := time.Now()
+	from := now.Add(-saveTime)
+
+	workerCount := min(historyLoadMaxParallel, len(users))
+	if cpu := runtime.GOMAXPROCS(0); cpu > 0 && cpu < workerCount {
+		workerCount = cpu
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	type historyResult struct {
+		user string
+		chat *genai.Chat
+	}
+
+	jobs := make(chan string)
+	results := make(chan historyResult, len(users))
+
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for user := range jobs {
+				msgs, err := db.GetMsgByTime(from, now, user)
+				if err != nil {
+					log.Error().Err(err).Str("user", user).Msg("failed to get chat record")
+					continue
+				}
+
+				history := make([]*genai.Content, 0, len(msgs))
+				skippedEmpty := 0
+				for _, m := range msgs {
+					content := strings.TrimSpace(m.Msg)
+					if content == "" {
+						skippedEmpty++
+						continue
+					}
+					if m.IsUser {
+						history = append(history, genai.NewContentFromText(content, genai.RoleUser))
+					} else {
+						history = append(history, genai.NewContentFromText(content, genai.RoleModel))
+					}
+				}
+				if skippedEmpty > 0 {
+					log.Warn().Str("user", user).Int("skipped_empty_history", skippedEmpty).Msg("skip empty chat history while loading")
+				}
+
+				chat, err := client.Chats.Create(ctx, modelName, nil, history)
+				if err != nil {
+					log.Error().Err(err).Str("user", user).Msg("failed to create chat from history")
+					continue
+				}
+
+				results <- historyResult{
+					user: user,
+					chat: chat,
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, user := range users {
+			jobs <- user
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+
+	css := make(map[string]*genai.Chat, len(users))
+	for result := range results {
+		css[result.user] = result.chat
+	}
+
+	return css
 }
 
 func (g gemini) Name() string {

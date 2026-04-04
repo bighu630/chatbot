@@ -4,6 +4,8 @@ import (
 	"chatbot/pkg/config"
 	"os"
 	"testing"
+
+	openai "github.com/sashabaranov/go-openai"
 )
 
 var openaiInstance *openAi
@@ -79,5 +81,35 @@ func TestOpenAi_Translate(t *testing.T) {
 	_, err := openaiInstance.Translate("hello")
 	if err == nil {
 		t.Fatal("err is nil")
+	}
+}
+
+func TestBuildTextMessage(t *testing.T) {
+	msg, ok := buildTextMessage("user", " hello ")
+	if !ok {
+		t.Fatal("expected non-empty message to be accepted")
+	}
+	if msg.Content != "hello" {
+		t.Fatalf("buildTextMessage content = %q, want %q", msg.Content, "hello")
+	}
+
+	if _, ok := buildTextMessage("user", "   "); ok {
+		t.Fatal("expected blank message to be rejected")
+	}
+}
+
+func TestSanitizeChatMessages(t *testing.T) {
+	messages := []openai.ChatCompletionMessage{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "   "},
+		{Role: "user", Content: "\nworld\n"},
+	}
+
+	sanitized := sanitizeChatMessages(messages)
+	if len(sanitized) != 2 {
+		t.Fatalf("sanitizeChatMessages len = %d, want 2", len(sanitized))
+	}
+	if sanitized[1].Content != "world" {
+		t.Fatalf("sanitizeChatMessages content = %q, want %q", sanitized[1].Content, "world")
 	}
 }

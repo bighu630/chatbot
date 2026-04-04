@@ -5,6 +5,7 @@ import (
 	"chatbot/internal/ai/gemini"
 	"chatbot/internal/ai/openai"
 	"chatbot/internal/handler/update"
+	"chatbot/internal/storage/repo"
 	"chatbot/pkg/config"
 	"chatbot/pkg/util"
 	"context"
@@ -21,7 +22,11 @@ import (
 )
 
 // 群聊对话保存一小时
-const chatMsgSaveTime = 60 * time.Minute
+const (
+	chatMsgSaveTime          = 60 * time.Minute
+	privateChatDailyLimit    = 30
+	privateReplyMaxRuneCount = 800
+)
 
 var _ ext.Handler = (*geminiHandler)(nil)
 
@@ -32,6 +37,7 @@ type geminiHandler struct {
 	chatCache    *chatCache
 	ai           ai.AiInterface
 	imgHandlerAi ai.AiInterface
+	chatRepo     repo.Chat
 }
 
 type takeInfo struct {
@@ -79,10 +85,16 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 	var aiProvider ai.AiInterface
 	aiProvider = openai.NewOpenAi(cfg)
 	cache := NewChatCache()
+	chatRepo, err := repo.InitChatDB()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to init chat repo for handler")
+	}
 	gai = &geminiHandler{
 		takeList:  make(map[string]*takeInfo),
 		chatCache: cache,
-		ai:        aiProvider}
+		ai:        aiProvider,
+		chatRepo:  chatRepo,
+	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
 	}
@@ -151,7 +163,8 @@ func (g *geminiHandler) HandleUpdate(b *gotgbot.Bot, ctx *ext.Context) error {
 
 // 处理私聊对话
 func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInterface) error {
-	sender := ctx.EffectiveSender.Username()
+	sender := privateChatKey(ctx)
+	isPrivateChat := ctx.EffectiveChat.Type == "private"
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		sender = ctx.EffectiveChat.Title
 		if sender == "" {
@@ -161,6 +174,10 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	input := strings.TrimPrefix(ctx.EffectiveMessage.Text, "/chat ")
 	if input == "/help" {
 		_, err := b.SendMessage(ctx.EffectiveChat.Id, Help, nil)
+		return err
+	}
+	if isPrivateChat && !g.allowPrivateChat(sender) {
+		_, err := b.SendMessage(ctx.EffectiveChat.Id, "私聊额度今天已经用完了，每天最多 30 次，明天再来。", nil)
 		return err
 	}
 
@@ -184,6 +201,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 2. 平时像普通群友随意聊天；遇到提问时，切换成思路清晰但不装腔的学霸模式。
 3. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话。
 4. 不要过长，也不要过度解释，让回复自然、像真人。
+5. 最终回复总长度不要超过 800 个汉字。
 
 请仅输出最终要发送的对话内容。`,
 				hmsg, input)
@@ -213,6 +231,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 			}
 		}
 	}
+	input = withReplyLimitInstruction(input)
 
 	c, cancel := context.WithCancel(context.Background())
 	setBotStatusWithContext(c, b, ctx)
@@ -224,6 +243,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		ctx.EffectiveMessage.Reply(b, "gemini chat error", nil)
 		return err
 	}
+	resp = limitReplyLength(resp, privateReplyMaxRuneCount)
 	log.Debug().Msgf("%s say: %s", sender, input)
 	r := strings.Split(resp, "||")
 	for _, m := range r {
@@ -232,6 +252,53 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	}
 	return nil
 
+}
+
+func (g *geminiHandler) allowPrivateChat(sender string) bool {
+	if g.chatRepo == nil || sender == "" {
+		return true
+	}
+
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	count, err := g.chatRepo.CountMsgByTime(startOfDay, now, sender, true)
+	if err != nil {
+		log.Error().Err(err).Str("sender", sender).Msg("failed to count private chat usage")
+		return true
+	}
+
+	return count < privateChatDailyLimit
+}
+
+func limitReplyLength(resp string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+
+	runes := []rune(resp)
+	if len(runes) <= maxRunes {
+		return resp
+	}
+
+	return strings.TrimSpace(string(runes[:maxRunes]))
+}
+
+func withReplyLimitInstruction(input string) string {
+	limitInstruction := "\n\n回复限制：只输出最终回复内容，总长度不要超过 800 个汉字。"
+	if strings.Contains(input, "总长度不要超过 800 个汉字") {
+		return input
+	}
+	return input + limitInstruction
+}
+
+func privateChatKey(ctx *ext.Context) string {
+	if ctx == nil || ctx.EffectiveChat == nil {
+		return ""
+	}
+	if ctx.EffectiveChat.Type == "private" {
+		return fmt.Sprintf("private:%d", ctx.EffectiveChat.Id)
+	}
+	return ctx.EffectiveSender.Username()
 }
 
 func sendRespond(resp string, b *gotgbot.Bot, ctx *ext.Context) error {

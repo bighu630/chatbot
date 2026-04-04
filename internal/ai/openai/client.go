@@ -7,6 +7,9 @@ import (
 	"chatbot/pkg/config"
 	"context"
 	"errors"
+	"runtime"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -14,7 +17,8 @@ import (
 )
 
 const (
-	saveTime = 100 * time.Hour
+	saveTime               = 100 * time.Hour
+	historyLoadMaxParallel = 8
 )
 
 var _ ai.AiInterface = (*openAi)(nil)
@@ -46,28 +50,88 @@ func NewOpenAi(cfg config.Ai) *openAi {
 
 	css := make(map[string][]openai.ChatCompletionMessage)
 	if db != nil {
-		for _, u := range db.GetAllUser() {
-			msgs, err := db.GetMsgByTime(time.Now().Add(-saveTime), time.Now(), u)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to get chat record")
-				continue
-			}
-			var chatMessages []openai.ChatCompletionMessage
-			for _, m := range msgs {
-				chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-					Role:    getRole(m.IsUser),
-					Content: m.Msg,
-				})
-			}
-			css[u] = chatMessages
-		}
-
+		css = loadChatHistory(db, getRole)
 	}
 
 	g := &openAi{db, client, cfg, ctx, css}
 	go g.autoDeleteDB()
 	log.Info().Msg("openai init success")
 	return g
+}
+
+func loadChatHistory(db repo.Chat, getRole func(bool) string) map[string][]openai.ChatCompletionMessage {
+	users := db.GetAllUser()
+	if len(users) == 0 {
+		return map[string][]openai.ChatCompletionMessage{}
+	}
+
+	now := time.Now()
+	from := now.Add(-saveTime)
+
+	workerCount := min(historyLoadMaxParallel, len(users))
+	if cpu := runtime.GOMAXPROCS(0); cpu > 0 && cpu < workerCount {
+		workerCount = cpu
+	}
+	if workerCount < 1 {
+		workerCount = 1
+	}
+
+	type historyResult struct {
+		user     string
+		messages []openai.ChatCompletionMessage
+	}
+
+	jobs := make(chan string)
+	results := make(chan historyResult, len(users))
+
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for user := range jobs {
+				msgs, err := db.GetMsgByTime(from, now, user)
+				if err != nil {
+					log.Error().Err(err).Str("user", user).Msg("failed to get chat record")
+					continue
+				}
+
+				chatMessages := make([]openai.ChatCompletionMessage, 0, len(msgs))
+				skippedEmpty := 0
+				for _, m := range msgs {
+					if chatMessage, ok := buildTextMessage(getRole(m.IsUser), m.Msg); ok {
+						chatMessages = append(chatMessages, chatMessage)
+					} else {
+						skippedEmpty++
+					}
+				}
+				if skippedEmpty > 0 {
+					log.Warn().Str("user", user).Int("skipped_empty_history", skippedEmpty).Msg("skip empty chat history while loading")
+				}
+
+				results <- historyResult{
+					user:     user,
+					messages: chatMessages,
+				}
+			}
+		}()
+	}
+
+	go func() {
+		for _, user := range users {
+			jobs <- user
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+
+	css := make(map[string][]openai.ChatCompletionMessage, len(users))
+	for result := range results {
+		css[result.user] = result.messages
+	}
+
+	return css
 }
 
 func (o openAi) Name() string {
@@ -107,14 +171,16 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 	if len(chatMessages) > 29 {
 		chatMessages = chatMessages[len(chatMessages)-30:]
 	}
+	chatMessages = sanitizeChatMessages(chatMessages)
 
-	chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: msg,
-	})
+	userMessage, ok := buildTextMessage(openai.ChatMessageRoleUser, msg)
+	if !ok {
+		return "", errors.New("empty chat message")
+	}
+	chatMessages = append(chatMessages, userMessage)
 	if o.db != nil {
 
-		if err := o.db.Add(model.NewChat(chatId, true, msg)); err != nil {
+		if err := o.db.Add(model.NewChat(chatId, true, userMessage.Content)); err != nil {
 			log.Error().Err(err).Msg("failed to add chat record")
 		}
 	}
@@ -128,17 +194,19 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 		if err != nil {
 			log.Error().Err(err).Msg("failed to send message to openai")
 		} else {
-			result := resp.Choices[0].Message.Content
-			chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-				Role:    openai.ChatMessageRoleAssistant,
-				Content: result,
-			})
+			result := strings.TrimSpace(resp.Choices[0].Message.Content)
+			if result == "" {
+				log.Error().Msg("openai returned empty chat content")
+				continue
+			}
+			assistantMessage, _ := buildTextMessage(openai.ChatMessageRoleAssistant, result)
+			chatMessages = append(chatMessages, assistantMessage)
 			o.chats[chatId] = chatMessages
-			if err := o.db.Add(model.NewChat(chatId, false, result)); err != nil {
+			if err := o.db.Add(model.NewChat(chatId, false, assistantMessage.Content)); err != nil {
 				log.Error().Err(err).Msg("failed to add chat record")
 				return "", err
 			}
-			return result, nil
+			return assistantMessage.Content, nil
 		}
 	}
 	chatMessages = append(chatMessages, openai.ChatCompletionMessage{
@@ -157,14 +225,13 @@ func (o *openAi) AddChatMsg(chatId string, userSay string, botSay string) error 
 	if chatMessages, ok = o.chats[chatId]; !ok {
 		return nil
 	}
-	chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: userSay,
-	}, openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleAssistant,
-		Content: botSay,
-	})
-	o.chats[chatId] = chatMessages
+	if userMessage, ok := buildTextMessage(openai.ChatMessageRoleUser, userSay); ok {
+		chatMessages = append(chatMessages, userMessage)
+	}
+	if assistantMessage, ok := buildTextMessage(openai.ChatMessageRoleAssistant, botSay); ok {
+		chatMessages = append(chatMessages, assistantMessage)
+	}
+	o.chats[chatId] = sanitizeChatMessages(chatMessages)
 	return nil
 }
 
@@ -182,4 +249,29 @@ func (o *openAi) autoDeleteDB() {
 			t = time.Now()
 		}
 	}
+}
+
+func buildTextMessage(role string, content string) (openai.ChatCompletionMessage, bool) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return openai.ChatCompletionMessage{}, false
+	}
+	return openai.ChatCompletionMessage{
+		Role:    role,
+		Content: content,
+	}, true
+}
+
+func sanitizeChatMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	sanitized := messages[:0]
+	for _, message := range messages {
+		if cleaned, ok := buildTextMessage(message.Role, message.Content); ok {
+			sanitized = append(sanitized, cleaned)
+		}
+	}
+	return sanitized
 }
