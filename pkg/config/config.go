@@ -12,6 +12,7 @@ type Config struct {
 	Log           Log           `toml:"log"`
 	Ytdlp         Ytdlp         `toml:"ytdlp"`
 	Ai            Ai            `toml:"ai"`
+	Emotion       EmotionConfig `toml:"emotion"`
 	Admin         AdminConfig   `toml:"admin"`
 	Storage       StorageConfig `toml:"storage"`
 	TencentConfig TencentConfig `toml:"tencent"`
@@ -46,13 +47,23 @@ type Ytdlp struct {
 	Path   string `json:"path" toml:"path"`
 }
 
+type EmotionConfig struct {
+	Enable       bool   `json:"enable" toml:"enable"`
+	APIBaseURL   string `json:"apiBaseUrl" toml:"apiBaseUrl"`
+	APIKey       string `json:"apiKey" toml:"apiKey"`
+	UploadedFile string `json:"uploadedFile" toml:"uploadedFile"`
+}
+
 type Ai struct {
-	Enable        bool   `json:"enable" tomel:"enable"`
-	GeminiKey     string `json:"geminiKey" toml:"geminiKey"`
-	GeminiModel   string `json:"geminiModel" toml:"geminiModel"`
-	OpenAiKey     string `json:"openaiKey" toml:"openaiKey"`
-	OpenAiModel   string `json:"openaiModel" toml:"openaiModel"`
-	OpenAiBaseUrl string `json:"openaiBaseUrl" toml:"openaiBaseUrl"`
+	Enable                bool   `json:"enable" tomel:"enable"`
+	GeminiKey             string `json:"geminiKey" toml:"geminiKey"`
+	GeminiModel           string `json:"geminiModel" toml:"geminiModel"`
+	OpenAiKey             string `json:"openaiKey" toml:"openaiKey"`
+	OpenAiModel           string `json:"openaiModel" toml:"openaiModel"`
+	OpenAiBaseUrl         string `json:"openaiBaseUrl" toml:"openaiBaseUrl"`
+	FallbackOpenAiKey     string `json:"fallbackOpenaiKey" toml:"fallbackOpenaiKey"`
+	FallbackOpenAiModel   string `json:"fallbackOpenaiModel" toml:"fallbackOpenaiModel"`
+	FallbackOpenAiBaseUrl string `json:"fallbackOpenaiBaseUrl" toml:"fallbackOpenaiBaseUrl"`
 }
 
 // StorageConfig storage config

@@ -49,12 +49,20 @@ func Start(cfg *config.Config) error {
 	var ymbHandler ext.Handler
 	var gaiHandler ext.Handler
 	var quotationsHandler ext.Handler
+	if cfg.Emotion.Enable {
+		stickerHandler, err := handler.NewStickerUploadHandler(cfg.Emotion, cfg.Admin.ChatIDs)
+		if err != nil {
+			log.Warn().Err(err).Msg("sticker upload handler unavailable")
+		} else {
+			tgWebHook.RegisterHandler(stickerHandler)
+		}
+	}
 	if cfg.Ytdlp.Enable {
 		ymbHandler = handler.NewYoutubeHandler(cfg.Ytdlp.Path)
 		tgWebHook.RegisterHandler(ymbHandler)
 	}
 	if cfg.Ai.Enable {
-		gaiHandler = handler.NewGeminiHandler(cfg.Ai)
+		gaiHandler = handler.NewGeminiHandler(cfg.Ai, cfg.Emotion)
 		tgWebHook.RegisterHandler(gaiHandler)
 	}
 	if cfg.Storage.Enable {

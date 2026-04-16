@@ -95,19 +95,6 @@ func TestLimitReplyLength(t *testing.T) {
 	}
 }
 
-func TestWithReplyLimitInstruction(t *testing.T) {
-	input := "你好"
-	got := withReplyLimitInstruction(input)
-	if got == input {
-		t.Fatal("expected reply limit instruction to be appended")
-	}
-
-	got2 := withReplyLimitInstruction(got)
-	if got2 != got {
-		t.Fatal("expected reply limit instruction to be appended only once")
-	}
-}
-
 func TestPrivateChatKey(t *testing.T) {
 	ctx := &ext.Context{
 		EffectiveChat: &gotgbot.Chat{
@@ -118,5 +105,49 @@ func TestPrivateChatKey(t *testing.T) {
 
 	if got := privateChatKey(ctx); got != "private:12345" {
 		t.Fatalf("privateChatKey() = %q, want %q", got, "private:12345")
+	}
+}
+
+func TestImageForChatAnalysis(t *testing.T) {
+	bot := &gotgbot.Bot{User: gotgbot.User{Id: 100, Username: "bot"}}
+
+	currentPhoto := gotgbot.PhotoSize{FileId: "current"}
+	ctx := &ext.Context{
+		EffectiveMessage: &gotgbot.Message{
+			Photo: []gotgbot.PhotoSize{currentPhoto},
+			ReplyToMessage: &gotgbot.Message{
+				From:  &gotgbot.User{Id: 100, Username: "bot"},
+				Photo: []gotgbot.PhotoSize{{FileId: "reply"}},
+			},
+		},
+	}
+	got, ok := imageForChatAnalysis(ctx, bot)
+	if !ok || got.FileId != "current" {
+		t.Fatalf("current photo should be selected, got %q ok=%v", got.FileId, ok)
+	}
+
+	ctx = &ext.Context{
+		EffectiveMessage: &gotgbot.Message{
+			ReplyToMessage: &gotgbot.Message{
+				From:  &gotgbot.User{Id: 200, Username: "alice"},
+				Photo: []gotgbot.PhotoSize{{FileId: "reply-user"}},
+			},
+		},
+	}
+	got, ok = imageForChatAnalysis(ctx, bot)
+	if !ok || got.FileId != "reply-user" {
+		t.Fatalf("user reply photo should be selected, got %q ok=%v", got.FileId, ok)
+	}
+
+	ctx = &ext.Context{
+		EffectiveMessage: &gotgbot.Message{
+			ReplyToMessage: &gotgbot.Message{
+				From:  &gotgbot.User{Id: 100, Username: "bot"},
+				Photo: []gotgbot.PhotoSize{{FileId: "reply-bot"}},
+			},
+		},
+	}
+	if got, ok = imageForChatAnalysis(ctx, bot); ok {
+		t.Fatalf("bot reply photo should be skipped, got %q", got.FileId)
 	}
 }

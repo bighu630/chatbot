@@ -33,11 +33,12 @@ var _ ext.Handler = (*geminiHandler)(nil)
 var gai *geminiHandler
 
 type geminiHandler struct {
-	takeList     map[string]*takeInfo
-	chatCache    *chatCache
-	ai           ai.AiInterface
-	imgHandlerAi ai.AiInterface
-	chatRepo     repo.Chat
+	takeList      map[string]*takeInfo
+	chatCache     *chatCache
+	ai            ai.AiInterface
+	imgHandlerAi  ai.AiInterface
+	chatRepo      repo.Chat
+	emotionClient *emotionReplyClient
 }
 
 type takeInfo struct {
@@ -81,7 +82,7 @@ func TriggerWithPercentage(percentage float64) bool {
 	return randomValue < percentage
 }
 
-func NewGeminiHandler(cfg config.Ai) ext.Handler {
+func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handler {
 	var aiProvider ai.AiInterface
 	aiProvider = openai.NewOpenAi(cfg)
 	cache := NewChatCache()
@@ -90,10 +91,11 @@ func NewGeminiHandler(cfg config.Ai) ext.Handler {
 		log.Error().Err(err).Msg("failed to init chat repo for handler")
 	}
 	gai = &geminiHandler{
-		takeList:  make(map[string]*takeInfo),
-		chatCache: cache,
-		ai:        aiProvider,
-		chatRepo:  chatRepo,
+		takeList:      make(map[string]*takeInfo),
+		chatCache:     cache,
+		ai:            aiProvider,
+		chatRepo:      chatRepo,
+		emotionClient: newEmotionReplyClient(emotionCfg),
 	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
@@ -172,6 +174,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		}
 	}
 	input := strings.TrimPrefix(ctx.EffectiveMessage.Text, "/chat ")
+	userMessage := input
 	if input == "/help" {
 		_, err := b.SendMessage(ctx.EffectiveChat.Id, Help, nil)
 		return err
@@ -183,8 +186,10 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 
 	// 如果是在群组里聊天，把聊天历史加上
 
+	chatContext := ""
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		hmsg, _ := g.chatCache.GetChatMsgAndClean(sender)
+		chatContext = hmsg
 		if time.Now().UnixMicro()%30 == 0 { // 有1/30的概率只提示历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 新消息: %s`, hmsg, input)
@@ -201,19 +206,12 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 2. 平时像普通群友随意聊天；遇到提问时，切换成思路清晰但不装腔的学霸模式。
 3. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话。
 4. 不要过长，也不要过度解释，让回复自然、像真人。
-5. 最终回复总长度不要超过 800 个汉字。
 
 请仅输出最终要发送的对话内容。`,
 				hmsg, input)
 		}
 	}
-	if len(ctx.EffectiveMessage.Photo) > 0 || (ctx.EffectiveMessage.ReplyToMessage != nil && len(ctx.EffectiveMessage.ReplyToMessage.Photo) > 0) {
-		var p gotgbot.PhotoSize
-		if len(ctx.EffectiveMessage.Photo) > 0 {
-			p = ctx.EffectiveMessage.Photo[len(ctx.EffectiveMessage.Photo)-1]
-		} else {
-			p = ctx.EffectiveMessage.ReplyToMessage.Photo[len(ctx.EffectiveMessage.ReplyToMessage.Photo)-1]
-		}
+	if p, ok := imageForChatAnalysis(ctx, b); ok {
 		itype, data, err := util.DownloadImgByFileID(p.FileId, b)
 		if err != nil {
 			log.Error().Err(err).Msg("download img error")
@@ -231,7 +229,6 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 			}
 		}
 	}
-	input = withReplyLimitInstruction(input)
 
 	c, cancel := context.WithCancel(context.Background())
 	setBotStatusWithContext(c, b, ctx)
@@ -250,8 +247,38 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		sendRespond(m, b, ctx)
 		time.Sleep(1 * time.Second)
 	}
+	g.maybeSendEmotionReply(b, ctx, chatContext, userMessage, resp)
 	return nil
 
+}
+
+func imageForChatAnalysis(ctx *ext.Context, b *gotgbot.Bot) (gotgbot.PhotoSize, bool) {
+	if ctx == nil || ctx.EffectiveMessage == nil {
+		return gotgbot.PhotoSize{}, false
+	}
+	if photos := ctx.EffectiveMessage.Photo; len(photos) > 0 {
+		return photos[len(photos)-1], true
+	}
+
+	reply := ctx.EffectiveMessage.ReplyToMessage
+	if reply == nil || len(reply.Photo) == 0 {
+		return gotgbot.PhotoSize{}, false
+	}
+	if isMessageFromBot(reply, b) {
+		log.Info().Int64("message_id", reply.MessageId).Msg("skip image analysis because replied image was sent by bot")
+		return gotgbot.PhotoSize{}, false
+	}
+	return reply.Photo[len(reply.Photo)-1], true
+}
+
+func isMessageFromBot(msg *gotgbot.Message, b *gotgbot.Bot) bool {
+	if msg == nil || msg.From == nil || b == nil {
+		return false
+	}
+	if b.Id != 0 && msg.From.Id == b.Id {
+		return true
+	}
+	return b.Username != "" && msg.From.Username == b.Username
 }
 
 func (g *geminiHandler) allowPrivateChat(sender string) bool {
@@ -281,14 +308,6 @@ func limitReplyLength(resp string, maxRunes int) string {
 	}
 
 	return strings.TrimSpace(string(runes[:maxRunes]))
-}
-
-func withReplyLimitInstruction(input string) string {
-	limitInstruction := "\n\n回复限制：只输出最终回复内容，总长度不要超过 800 个汉字。"
-	if strings.Contains(input, "总长度不要超过 800 个汉字") {
-		return input
-	}
-	return input + limitInstruction
 }
 
 func privateChatKey(ctx *ext.Context) string {

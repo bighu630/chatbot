@@ -121,12 +121,20 @@ go run ./cmd/bot -config ./config.toml
 - `openaiKey`: OpenAI 或兼容接口的 API Key
 - `openaiModel`: 聊天模型名
 - `openaiBaseUrl`: 兼容接口地址
+- `fallbackOpenaiKey` / `fallbackOpenaiModel` / `fallbackOpenaiBaseUrl`: 付费兜底模型配置；免费模型额度或限流时自动切换
 - `geminiKey`: 用于图片理解
 - `geminiModel`: Gemini 模型名
 
 说明：
 - 当前聊天主链路会初始化 OpenAI client
 - 如果配置了 `geminiKey`，图片会额外走 Gemini 做描述
+
+### `emotion`
+
+- `enable`: 是否启用群聊贴纸采集上传
+- `apiBaseUrl`: emotion-palette-service 地址，默认 `https://emo.whosworld.fun`
+- `apiKey`: 批量上传接口的 `x-api-key`
+- `uploadedFile`: 本地去重记录文件路径
 
 ### `admin`
 

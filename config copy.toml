@@ -22,6 +22,15 @@ geminiModel = "gemini-2.5-flash"
 openaiKey = ""
 openaiModel = ""
 openaiBaseUrl = ""
+fallbackOpenaiKey = ""
+fallbackOpenaiModel = ""
+fallbackOpenaiBaseUrl = ""
+
+[emotion]
+enable = false
+apiBaseUrl = "https://emo.whosworld.fun"
+apiKey = ""
+uploadedFile = "./data/sticker_uploads.json"
 
 [admin]
 chatIDs = []

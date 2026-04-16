@@ -56,6 +56,18 @@
 - chat 的 prompt 直接写在 handler 中，后续如果继续扩展，建议抽离
 - 群聊缓存是进程内状态，重启后会丢失
 
+## 发布记录
+
+### 2026-04-03
+
+- 发布脚本为 `scripts/deploy_node3.sh`
+- 发布链路是：本地 `make` 构建 `bin/bot`，然后 `scp` 到 `root@node3.musicfun.dpdns.org:~/tgbot/chatbot`，最后远端 `systemctl restart tgbot`
+- 代理环境里执行发布脚本时，构建阶段成功，失败点在 SSH / SCP：
+  - `Bad owner or permissions on /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf`
+  - 绕过系统 SSH 配置后，还见过 `Could not resolve hostname node3.musicfun.dpdns.org: Temporary failure in name resolution`
+- 用户在本机交互终端直接执行同一脚本时，发布成功
+- 结论：这次问题不在仓库代码，也不在构建产物，而在代理执行环境和用户本机终端环境存在差异；后续遇到类似发布失败，应优先区分“本地构建问题”和“远程环境 / SSH / DNS 问题”
+
 ## 接手原则
 
 - 后续修改优先围绕 `chat` 做，不会先做外围功能美化
