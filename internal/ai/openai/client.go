@@ -509,18 +509,49 @@ const emotionSearchSystemPrompt = `你是一个表情检索参数生成器。
 }
 
 规则：
-1. 每个情绪分数范围是 0 到 1。
+1. 每个情绪分数范围是 0 到 1，只能输出 schema 中的六个情绪字段。
 2. 主要根据 bot 即将发送的回复判断情绪，用户消息和上下文只作为辅助。
-3. 调侃、开心、哈哈、玩梗时 joy 较高。
-4. 吐槽、嫌弃、无语时 disgust 或 anger 可以中等偏高。
-5. 震惊、意外、反转时 surprise 较高。
-6. 害怕、担心、被吓到时 fear 较高。
-7. 安慰、低落、遗憾时 sadness 可以中等。
-8. 中性回复不要给任何情绪过高，最高维度控制在 0.35 左右。
-9. top_k 固定为 1。
-10. max_distance 固定为 0.75。
-11. source 固定为 "telegram-sticker"。
-12. tags 默认 null。`
+3. 先判断回复的主导语气，再把它映射到六维分数；不要平均撒分。
+4. 中性、普通说明、事实回答不要给任何情绪过高，最高维度控制在 0.35 左右。
+5. 轻微情绪最高维度通常 0.35-0.55；明显情绪最高维度通常 0.55-0.80；极强情绪才超过 0.80。
+6. top_k 固定为 1。
+7. max_distance 固定为 0.75。
+8. source 固定为 "telegram-sticker"。
+9. tags 默认 null。
+
+六维基础倾向：
+- 调侃、开心、哈哈、玩梗、卖萌：joy 较高。
+- 吐槽、嫌弃、无语、阴阳怪气：disgust 或 anger 中等偏高。
+- 震惊、意外、反转、突然发现：surprise 较高。
+- 害怕、担心、不确定、慌张：fear 较高。
+- 安慰、低落、遗憾、失落：sadness 中等。
+- 被冒犯、反驳、强烈不满：anger 较高。
+
+复合情绪参考配方：
+- 害羞：fear 0.40 + disgust 0.30 + joy 0.20 + surprise 0.10。
+- 内疚：sadness 0.35 + fear 0.25 + anger 0.20，另有羞耻感时提高 disgust 或 sadness。
+- 嫉妒：anger 0.35 + fear 0.30 + sadness 0.25 + disgust 0.10。
+- 羡慕：sadness 0.35 + anger 0.30 + fear 0.15 + disgust 0.10，带正向羡慕时可少量提高 joy。
+- 羞耻：disgust 0.35 + sadness 0.30 + fear 0.20 + anger 0.15。
+- 自豪：joy 0.55 + anger 0.15 + surprise 0.10；如果是温和自豪，降低 anger。
+- 轻蔑：disgust 0.50 + anger 0.40 + joy 0.10。
+- 焦虑：fear 0.45 + sadness 0.25 + surprise 0.15 + disgust 0.15。
+- 孤独：sadness 0.40 + fear 0.25 + anger 0.20 + disgust 0.15。
+- 兴奋：joy 0.55 + surprise 0.25 + fear 0.10 + anger 0.10。
+- 敬畏：surprise 0.40 + fear 0.30 + joy 0.20 + disgust 0.10。
+- 希望：joy 0.35 + fear 0.35 + surprise 0.30。
+- 爱或亲昵：joy 0.30 + fear 0.20 + anger 0.15 + surprise 0.10；如果只是友好亲切，主要提高 joy，其他维度保持低。
+- 怀旧：sadness 0.35 + joy 0.35 + fear 0.15 + anger 0.15。
+- 讽刺：joy 0.30 + disgust 0.30 + anger 0.25 + surprise 0.15。
+- 道德愤怒：anger 0.50 + disgust 0.30 + fear 0.20。
+- 思乡：sadness 0.40 + fear 0.30 + joy 0.20 + disgust 0.10。
+- 困惑：surprise 0.40 + fear 0.30 + sadness 0.20 + disgust 0.10。
+- 投入或上头：joy 0.40 + surprise 0.30 + fear 0.20 + anger 0.10。
+
+使用配方时按实际语气缩放强度：
+- 如果只是轻微玩笑或轻微吐槽，把配方整体乘以 0.6-0.8。
+- 如果回复短促但情绪明确，可以保留主导维度，压低次要维度。
+- 不要输出 trust、desire、shame 等额外字段；这些只能折算进上面的六维。`
 
 func buildEmotionSearchPrompt(chatContext string, userMessage string, botReply string) string {
 	return fmt.Sprintf(`群聊上下文：
