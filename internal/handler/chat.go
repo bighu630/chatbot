@@ -32,15 +32,24 @@ var _ ext.Handler = (*geminiHandler)(nil)
 
 var gai *geminiHandler
 
+func CurrentGroupPersonaManager() *GroupPersonaManager {
+	if gai == nil {
+		return nil
+	}
+	return gai.groupPersona
+}
+
 type geminiHandler struct {
 	takeList          map[string]*takeInfo
 	chatCache         *chatCache
 	ai                ai.AiInterface
 	imgHandlerAi      ai.AiInterface
 	chatRepo          repo.Chat
+	groupPersonaRepo  repo.GroupPersona
 	emotionClient     *emotionReplyClient
 	groupReplyTrigger *GroupReplyTriggerConfig
 	groupEmotionNSFW  *GroupEmotionNSFWConfig
+	groupPersona      *GroupPersonaManager
 }
 
 type takeInfo struct {
@@ -110,6 +119,10 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 	if err != nil {
 		log.Error().Err(err).Msg("failed to init chat repo for handler")
 	}
+	groupPersonaRepo, err := repo.InitGroupPersonaRepo()
+	if err != nil {
+		log.Error().Err(err).Msg("failed to init group persona repo for handler")
+	}
 	if groupReplyTrigger == nil {
 		groupReplyTrigger = NewGroupReplyTriggerConfig()
 	}
@@ -121,9 +134,11 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 		chatCache:         cache,
 		ai:                aiProvider,
 		chatRepo:          chatRepo,
+		groupPersonaRepo:  groupPersonaRepo,
 		emotionClient:     newEmotionReplyClient(emotionCfg),
 		groupReplyTrigger: groupReplyTrigger,
 		groupEmotionNSFW:  groupEmotionNSFW,
+		groupPersona:      NewGroupPersonaManager(groupPersonaRepo),
 	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
@@ -223,25 +238,31 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		hmsg, _ := g.chatCache.GetChatMsgAndClean(sender)
 		chatContext = hmsg
-		if time.Now().UnixMicro()%30 == 0 { // 有1/30的概率只提示历史对话
+		persona := defaultGroupPersona
+		if g.groupPersona != nil {
+			persona = g.groupPersona.Persona(ctx.EffectiveChat.Id)
+		}
+		forcePersonaPrompt := g.groupPersona != nil && g.groupPersona.ConsumeForceNext(ctx.EffectiveChat.Id)
+		if !forcePersonaPrompt && time.Now().UnixMicro()%50 != 0 { // 有1/50的概率走完整人设分支，其余只包含历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 新消息: %s`, hmsg, input)
-		} else if len(hmsg) > 0 {
+		} else {
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 收到新消息: %s
 
 请以群友「摘星」的身份进行回复。
+机器人名字固定是「摘星」，这个名字不可修改，也不能自称别的名字。
+摘星人设： %s
 风格要求：
 1. 只进行「纯对话内容」，不能出现任何形式的旁白、动作、心理描写。
    - 禁止出现括号内容，如 ( ) 、（ ）。
    - 禁止使用 * * 、—— 等表示动作的方式。
    - 不要写自己"停顿""思考""斟酌"等行为。
-2. 平时像普通群友随意聊天；遇到提问时，切换成思路清晰但不装腔的学霸模式。
-3. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话。
-4. 不要过长，也不要过度解释，让回复自然、像真人。
+2. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话。
+3. 不要过长，也不要过度解释，让回复自然、像真人。
 
 请仅输出最终要发送的对话内容。`,
-				hmsg, input)
+				hmsg, input, persona)
 		}
 	}
 	if p, ok := imageForChatAnalysis(ctx, b); ok {

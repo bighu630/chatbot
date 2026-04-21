@@ -72,6 +72,10 @@ func Start(cfg *config.Config) error {
 		nsfwHandler := handler.NewGroupEmotionNSFWHandler(groupEmotionNSFW, cfg.Admin.ChatIDs)
 		tgWebHook.RegisterHandlerWithCmd(nsfwHandler, "nsfw")
 		tgWebHook.RegisterHandlerWithCmd(nsfwHandler, "setnsfw")
+		personaHandler := handler.NewGroupPersonaHandler(handler.CurrentGroupPersonaManager(), cfg.Admin.ChatIDs)
+		tgWebHook.RegisterHandlerWithCmd(personaHandler, "persona")
+		personaClearHandler := handler.NewGroupPersonaClearHandler(handler.CurrentGroupPersonaManager(), cfg.Admin.ChatIDs)
+		tgWebHook.RegisterHandlerWithCmd(personaClearHandler, "persona_clear")
 	}
 	if cfg.Storage.Enable {
 		quotationsHandler = quotation.NewQuotationsHandler()
