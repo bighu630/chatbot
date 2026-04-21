@@ -1,4 +1,4 @@
-# chatbot
+# 摘星
 
 一个基于 Telegram 的群聊机器人项目。
 
