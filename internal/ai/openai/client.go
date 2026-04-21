@@ -514,7 +514,7 @@ const emotionSearchSystemPrompt = `你是一个表情检索参数生成器。
 3. 先判断回复的主导语气，再把它映射到六维分数；不要平均撒分。
 4. 中性、普通说明、事实回答不要给任何情绪过高，最高维度控制在 0.35 左右。
 5. 轻微情绪最高维度通常 0.35-0.55；明显情绪最高维度通常 0.55-0.80；极强情绪才超过 0.80。
-6. top_k 固定为 1。
+6. top_k 固定为 5。
 7. max_distance 固定为 0.75。
 8. source 固定为 "telegram-sticker"。
 9. tags 默认 null。
@@ -585,7 +585,7 @@ func normalizeEmotionSearchParams(params ai.EmotionSearchParams) ai.EmotionSearc
 	params.Scores.Fear = clamp01(params.Scores.Fear)
 	params.Scores.Disgust = clamp01(params.Scores.Disgust)
 	params.Scores.Surprise = clamp01(params.Scores.Surprise)
-	params.TopK = 1
+	params.TopK = 5
 	params.MaxDistance = 0.75
 	params.Source = "telegram-sticker"
 	if len(params.Tags) == 0 {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"time"
@@ -25,14 +26,16 @@ type emotionReplyClient struct {
 
 type emotionSearchAPIResponse struct {
 	Data struct {
-		MatchedCount int `json:"matched_count"`
-		Matches      []struct {
-			AssetID           int64   `json:"asset_id"`
-			ImageURL          string  `json:"image_url"`
-			TelegramStickerID string  `json:"telegram_sticker_id"`
-			Distance          float64 `json:"distance"`
-		} `json:"matches"`
+		MatchedCount int                  `json:"matched_count"`
+		Matches      []emotionSearchMatch `json:"matches"`
 	} `json:"data"`
+}
+
+type emotionSearchMatch struct {
+	AssetID           int64   `json:"asset_id"`
+	ImageURL          string  `json:"image_url"`
+	TelegramStickerID string  `json:"telegram_sticker_id"`
+	Distance          float64 `json:"distance"`
 }
 
 type emotionImageMatch struct {
@@ -65,16 +68,39 @@ func (g *geminiHandler) maybeSendEmotionReply(b *gotgbot.Bot, ctx *ext.Context, 
 		return
 	}
 
-	builder, ok := g.ai.(ai.EmotionSearchBuilder)
-	if !ok {
-		log.Warn().Msg("skip emotion reply because ai provider cannot build emotion search params")
-		return
+	nsfwMode := defaultGroupEmotionNSFWMode
+	if g.groupEmotionNSFW != nil {
+		nsfwMode = g.groupEmotionNSFW.mode(ctx.EffectiveChat.Id)
 	}
 
-	params, err := builder.BuildEmotionSearchParams(chatContext, userMessage, botReply)
-	if err != nil {
-		log.Warn().Err(err).Msg("failed to build emotion search params")
-		return
+	var (
+		params ai.EmotionSearchParams
+		err    error
+	)
+	if nsfwMode == groupEmotionNSFWModeOnlyNSFW {
+		params = buildEmotionSearchParamsForNSFWOnly()
+		log.Debug().Int64("chat_id", ctx.EffectiveChat.Id).Msg("skip ai emotion param generation because nsfw mode is only-nsfw")
+	} else {
+		builder, ok := g.ai.(ai.EmotionSearchBuilder)
+		if !ok {
+			log.Warn().Msg("skip emotion reply because ai provider cannot build emotion search params")
+			return
+		}
+		params, err = builder.BuildEmotionSearchParams(chatContext, userMessage, botReply)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to build emotion search params")
+			return
+		}
+		params.TopK = 5
+		params.MaxDistance = 0.75
+		params.Source = "telegram-sticker"
+	}
+	if g.groupEmotionNSFW != nil {
+		nsfwMode = g.groupEmotionNSFW.apply(&params, ctx.EffectiveChat.Id)
+	} else {
+		// Safe default when config is unavailable.
+		value := false
+		params.IsNSFW = &value
 	}
 	log.Info().
 		Float64("joy", params.Scores.Joy).
@@ -84,8 +110,10 @@ func (g *geminiHandler) maybeSendEmotionReply(b *gotgbot.Bot, ctx *ext.Context, 
 		Float64("disgust", params.Scores.Disgust).
 		Float64("surprise", params.Scores.Surprise).
 		Int("top_k", params.TopK).
-		Float64("max_distance", params.MaxDistance).
-		Str("source", params.Source).
+		Bool("has_max_distance", params.MaxDistance != 0).
+		Bool("has_source", params.Source != "").
+		Int("nsfw_mode", nsfwMode).
+		Any("is_nsfw", params.IsNSFW).
 		Msg("built emotion search params")
 
 	match, err := g.emotionClient.searchImage(params)
@@ -114,12 +142,23 @@ func (g *geminiHandler) maybeSendEmotionReply(b *gotgbot.Bot, ctx *ext.Context, 
 	log.Info().Str("image_url", match.imageURL).Msg("sent emotion image")
 }
 
+func buildEmotionSearchParamsForNSFWOnly() ai.EmotionSearchParams {
+	params := ai.EmotionSearchParams{
+		TopK: 5,
+	}
+	return params
+}
+
 func (c *emotionReplyClient) searchImage(params ai.EmotionSearchParams) (emotionImageMatch, error) {
 	body, err := json.Marshal(params)
 	if err != nil {
 		return emotionImageMatch{}, err
 	}
 	url := strings.TrimRight(c.cfg.APIBaseURL, "/") + "/v1/emotion-assets/search"
+	log.Info().
+		Str("url", url).
+		Str("params_json", string(body)).
+		Msg("send emotion search request")
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return emotionImageMatch{}, err
@@ -144,11 +183,35 @@ func (c *emotionReplyClient) searchImage(params ai.EmotionSearchParams) (emotion
 		return emotionImageMatch{}, err
 	}
 	if len(result.Data.Matches) == 0 {
+		log.Info().Int("matched_count", result.Data.MatchedCount).Msg("emotion search returned no matches")
 		return emotionImageMatch{}, nil
 	}
-	match := result.Data.Matches[0]
+	match, ok := selectRandomEmotionMatch(result.Data.Matches)
+	if !ok {
+		log.Info().Int("matched_count", result.Data.MatchedCount).Msg("emotion search returned only empty matches")
+		return emotionImageMatch{}, nil
+	}
+	log.Info().
+		Int("matched_count", result.Data.MatchedCount).
+		Str("selected_image_url", match.ImageURL).
+		Str("selected_tg_sticker_id", match.TelegramStickerID).
+		Float64("selected_distance", match.Distance).
+		Msg("emotion search selected match")
 	return emotionImageMatch{
 		imageURL:    match.ImageURL,
 		tgStickerID: match.TelegramStickerID,
 	}, nil
+}
+
+func selectRandomEmotionMatch(matches []emotionSearchMatch) (emotionSearchMatch, bool) {
+	valid := make([]emotionSearchMatch, 0, len(matches))
+	for _, match := range matches {
+		if match.ImageURL != "" || match.TelegramStickerID != "" {
+			valid = append(valid, match)
+		}
+	}
+	if len(valid) == 0 {
+		return emotionSearchMatch{}, false
+	}
+	return valid[rand.N(len(valid))], true
 }

@@ -5,6 +5,8 @@ import "github.com/PaulSonOfLars/gotgbot/v2"
 var defaultCommands = []gotgbot.BotCommand{
 	{Command: "help", Description: "查看帮助"},
 	{Command: "chat", Description: "和机器人聊天"},
+	{Command: "activity", Description: "设置本群随机回复活跃度"},
+	{Command: "nsfw", Description: "设置本群表情 NSFW 搜索模式"},
 	{Command: "feedback", Description: "提交反馈给管理员"},
 	{Command: "add", Description: "添加语录"},
 	{Command: "admin", Description: "设置语录管理员"},

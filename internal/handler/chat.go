@@ -33,12 +33,14 @@ var _ ext.Handler = (*geminiHandler)(nil)
 var gai *geminiHandler
 
 type geminiHandler struct {
-	takeList      map[string]*takeInfo
-	chatCache     *chatCache
-	ai            ai.AiInterface
-	imgHandlerAi  ai.AiInterface
-	chatRepo      repo.Chat
-	emotionClient *emotionReplyClient
+	takeList          map[string]*takeInfo
+	chatCache         *chatCache
+	ai                ai.AiInterface
+	imgHandlerAi      ai.AiInterface
+	chatRepo          repo.Chat
+	emotionClient     *emotionReplyClient
+	groupReplyTrigger *GroupReplyTriggerConfig
+	groupEmotionNSFW  *GroupEmotionNSFWConfig
 }
 
 type takeInfo struct {
@@ -65,14 +67,32 @@ func firstToken(text string) string {
 	return fields[0]
 }
 
+func hasBotMention(message *gotgbot.Message, b *gotgbot.Bot) bool {
+	if message == nil || b == nil || b.Username == "" {
+		return false
+	}
+
+	target := "@" + b.Username
+	for _, ent := range message.Entities {
+		switch ent.Type {
+		case "mention":
+			parsed := message.ParseEntity(ent)
+			if strings.EqualFold(parsed.Text, target) {
+				return true
+			}
+		case "text_mention":
+			if ent.User != nil && b.Id != 0 && ent.User.Id == b.Id {
+				return true
+			}
+		}
+	}
+
+	// Fallback for cases where entity parsing is unavailable or malformed.
+	return strings.Contains(strings.ToLower(message.Text), strings.ToLower(target))
+}
+
 func TriggerWithPercentage(percentage float64) bool {
-	// 确保概率在有效范围内
-	if percentage < 0.0 {
-		percentage = 0.0
-	}
-	if percentage > 1.0 {
-		percentage = 1.0
-	}
+	percentage = clampPercentage(percentage)
 
 	// 生成一个0.0到1.0之间的随机浮点数
 	// rand.Float64() 返回 [0.0, 1.0) 的随机浮点数
@@ -82,7 +102,7 @@ func TriggerWithPercentage(percentage float64) bool {
 	return randomValue < percentage
 }
 
-func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handler {
+func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReplyTrigger *GroupReplyTriggerConfig, groupEmotionNSFW *GroupEmotionNSFWConfig) ext.Handler {
 	var aiProvider ai.AiInterface
 	aiProvider = openai.NewOpenAi(cfg)
 	cache := NewChatCache()
@@ -90,12 +110,20 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handle
 	if err != nil {
 		log.Error().Err(err).Msg("failed to init chat repo for handler")
 	}
+	if groupReplyTrigger == nil {
+		groupReplyTrigger = NewGroupReplyTriggerConfig()
+	}
+	if groupEmotionNSFW == nil {
+		groupEmotionNSFW = NewGroupEmotionNSFWConfig()
+	}
 	gai = &geminiHandler{
-		takeList:      make(map[string]*takeInfo),
-		chatCache:     cache,
-		ai:            aiProvider,
-		chatRepo:      chatRepo,
-		emotionClient: newEmotionReplyClient(emotionCfg),
+		takeList:          make(map[string]*takeInfo),
+		chatCache:         cache,
+		ai:                aiProvider,
+		chatRepo:          chatRepo,
+		emotionClient:     newEmotionReplyClient(emotionCfg),
+		groupReplyTrigger: groupReplyTrigger,
+		groupEmotionNSFW:  groupEmotionNSFW,
 	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
@@ -119,10 +147,8 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handle
 			ctx.EffectiveMessage.ReplyToMessage.From.Username == b.Username {
 			return true
 		}
-		for _, ent := range ctx.EffectiveMessage.Entities {
-			if ent.Type == "mention" && strings.HasPrefix(ctx.EffectiveMessage.Text, "@"+b.Username+" ") {
-				return true
-			}
+		if hasBotMention(ctx.EffectiveMessage, b) {
+			return true
 		}
 		bc := isChatCommand(ctx.EffectiveMessage.Text)
 		if ctx.EffectiveMessage.Text == "" && len(ctx.EffectiveMessage.Photo) == 0 {
@@ -131,8 +157,15 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handle
 		if bc {
 			return bc
 		} else {
-			if TriggerWithPercentage(0.003) && ctx.EffectiveMessage.ReplyToMessage == nil {
-				return true
+			if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
+				rate := gai.groupReplyTrigger.rate(ctx.EffectiveChat.Id)
+				if TriggerWithPercentage(rate) && ctx.EffectiveMessage.ReplyToMessage == nil {
+					log.Info().
+						Int64("chat_id", ctx.EffectiveChat.Id).
+						Float64("rate", rate).
+						Msg("random group reply triggered")
+					return true
+				}
 			}
 			if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 				msg := ctx.EffectiveMessage.Text

@@ -46,6 +46,40 @@ func TestIsSlashCommand(t *testing.T) {
 	}
 }
 
+func TestHasBotMention(t *testing.T) {
+	bot := &gotgbot.Bot{User: gotgbot.User{Id: 100, Username: "my_bot"}}
+
+	msg := &gotgbot.Message{
+		Text: "hello @my_bot world",
+		Entities: []gotgbot.MessageEntity{
+			{Type: "mention", Offset: 6, Length: 7},
+		},
+	}
+	if !hasBotMention(msg, bot) {
+		t.Fatal("expected mention in middle of message to trigger")
+	}
+
+	msg = &gotgbot.Message{
+		Text: "hello there",
+		Entities: []gotgbot.MessageEntity{
+			{Type: "text_mention", User: &gotgbot.User{Id: 100}},
+		},
+	}
+	if !hasBotMention(msg, bot) {
+		t.Fatal("expected text_mention to trigger")
+	}
+
+	msg = &gotgbot.Message{
+		Text: "hello @other_bot world",
+		Entities: []gotgbot.MessageEntity{
+			{Type: "mention", Offset: 6, Length: 10},
+		},
+	}
+	if hasBotMention(msg, bot) {
+		t.Fatal("expected other bot mention not to trigger")
+	}
+}
+
 type fakeChatRepo struct {
 	count int64
 	err   error

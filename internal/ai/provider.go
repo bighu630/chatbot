@@ -22,9 +22,10 @@ type EmotionScores struct {
 type EmotionSearchParams struct {
 	Scores      EmotionScores `json:"scores"`
 	TopK        int           `json:"top_k"`
-	MaxDistance float64       `json:"max_distance"`
-	Source      string        `json:"source"`
-	Tags        []string      `json:"tags"`
+	MaxDistance float64       `json:"max_distance,omitempty"`
+	Source      string        `json:"source,omitempty"`
+	Tags        []string      `json:"tags,omitempty"`
+	IsNSFW      *bool         `json:"is_nsfw,omitempty"`
 }
 
 type EmotionSearchBuilder interface {

@@ -178,8 +178,8 @@ func TestParseEmotionSearchParams(t *testing.T) {
 	if params.Scores.Anger != 0 {
 		t.Fatalf("anger = %v, want 0", params.Scores.Anger)
 	}
-	if params.TopK != 1 {
-		t.Fatalf("top_k = %d, want 1", params.TopK)
+	if params.TopK != 5 {
+		t.Fatalf("top_k = %d, want 5", params.TopK)
 	}
 	if params.Source != "telegram-sticker" {
 		t.Fatalf("source = %q, want telegram-sticker", params.Source)
