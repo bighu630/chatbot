@@ -9,6 +9,8 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 )
 
 const emotionReplyTriggerRate = 0.8
+const emotionReplyDownloadLimit = 20 * 1024 * 1024
 
 type emotionReplyClient struct {
 	cfg        config.EmotionConfig
@@ -36,6 +39,8 @@ type emotionSearchMatch struct {
 	ImageURL          string  `json:"image_url"`
 	TelegramStickerID string  `json:"telegram_sticker_id"`
 	Distance          float64 `json:"distance"`
+	NSFWScore         float64 `json:"nsfw_score"`
+	IsNSFW            bool    `json:"is_nsfw"`
 }
 
 type emotionImageMatch struct {
@@ -136,7 +141,17 @@ func (g *geminiHandler) maybeSendEmotionReply(b *gotgbot.Bot, ctx *ext.Context, 
 	}
 
 	if _, err := b.SendPhoto(ctx.EffectiveChat.Id, gotgbot.InputFileByURL(match.imageURL), nil); err != nil {
-		log.Warn().Err(err).Str("image_url", match.imageURL).Msg("failed to send emotion image")
+		log.Warn().Err(err).Str("image_url", match.imageURL).Msg("failed to send emotion image by url; fallback to upload")
+		name, data, downloadErr := g.emotionClient.downloadEmotionImage(match.imageURL)
+		if downloadErr != nil {
+			log.Warn().Err(downloadErr).Str("image_url", match.imageURL).Msg("failed to download emotion image for upload fallback")
+			return
+		}
+		if _, uploadErr := b.SendPhoto(ctx.EffectiveChat.Id, gotgbot.InputFileByReader(name, bytes.NewReader(data)), nil); uploadErr != nil {
+			log.Warn().Err(uploadErr).Str("image_url", match.imageURL).Msg("failed to send emotion image by upload fallback")
+			return
+		}
+		log.Info().Str("image_url", match.imageURL).Str("file_name", name).Msg("sent emotion image by upload fallback")
 		return
 	}
 	log.Info().Str("image_url", match.imageURL).Msg("sent emotion image")
@@ -182,6 +197,7 @@ func (c *emotionReplyClient) searchImage(params ai.EmotionSearchParams) (emotion
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return emotionImageMatch{}, err
 	}
+	logEmotionSearchMatches(result.Data.Matches)
 	if len(result.Data.Matches) == 0 {
 		log.Info().Int("matched_count", result.Data.MatchedCount).Msg("emotion search returned no matches")
 		return emotionImageMatch{}, nil
@@ -191,16 +207,54 @@ func (c *emotionReplyClient) searchImage(params ai.EmotionSearchParams) (emotion
 		log.Info().Int("matched_count", result.Data.MatchedCount).Msg("emotion search returned only empty matches")
 		return emotionImageMatch{}, nil
 	}
+	if match.IsNSFW {
+		if match.ImageURL == "" {
+			log.Info().
+				Int("matched_count", result.Data.MatchedCount).
+				Int64("selected_asset_id", match.AssetID).
+				Float64("selected_nsfw_score", match.NSFWScore).
+				Bool("selected_is_nsfw", match.IsNSFW).
+				Msg("skip nsfw emotion match because image_url is empty")
+			return emotionImageMatch{}, nil
+		}
+		log.Info().
+			Int("matched_count", result.Data.MatchedCount).
+			Str("selected_image_url", match.ImageURL).
+			Float64("selected_nsfw_score", match.NSFWScore).
+			Bool("selected_is_nsfw", match.IsNSFW).
+			Float64("selected_distance", match.Distance).
+			Msg("emotion search selected nsfw match and force image send")
+		return emotionImageMatch{
+			imageURL: match.ImageURL,
+		}, nil
+	}
 	log.Info().
 		Int("matched_count", result.Data.MatchedCount).
+		Int64("selected_asset_id", match.AssetID).
 		Str("selected_image_url", match.ImageURL).
 		Str("selected_tg_sticker_id", match.TelegramStickerID).
+		Float64("selected_nsfw_score", match.NSFWScore).
+		Bool("selected_is_nsfw", match.IsNSFW).
 		Float64("selected_distance", match.Distance).
 		Msg("emotion search selected match")
 	return emotionImageMatch{
 		imageURL:    match.ImageURL,
 		tgStickerID: match.TelegramStickerID,
 	}, nil
+}
+
+func logEmotionSearchMatches(matches []emotionSearchMatch) {
+	for index, match := range matches {
+		log.Info().
+			Int("match_index", index).
+			Int64("asset_id", match.AssetID).
+			Str("image_url", match.ImageURL).
+			Str("tg_sticker_id", match.TelegramStickerID).
+			Float64("distance", match.Distance).
+			Float64("nsfw_score", match.NSFWScore).
+			Bool("is_nsfw", match.IsNSFW).
+			Msg("emotion search returned match")
+	}
 }
 
 func selectRandomEmotionMatch(matches []emotionSearchMatch) (emotionSearchMatch, bool) {
@@ -214,4 +268,40 @@ func selectRandomEmotionMatch(matches []emotionSearchMatch) (emotionSearchMatch,
 		return emotionSearchMatch{}, false
 	}
 	return valid[rand.N(len(valid))], true
+}
+
+func (c *emotionReplyClient) downloadEmotionImage(imageURL string) (string, []byte, error) {
+	req, err := http.NewRequest(http.MethodGet, imageURL, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", nil, fmt.Errorf("download emotion image failed: %s: %s", resp.Status, string(body))
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, emotionReplyDownloadLimit+1))
+	if err != nil {
+		return "", nil, err
+	}
+	if len(data) > emotionReplyDownloadLimit {
+		return "", nil, fmt.Errorf("emotion image is larger than %d bytes", emotionReplyDownloadLimit)
+	}
+	return deriveEmotionImageName(imageURL), data, nil
+}
+
+func deriveEmotionImageName(imageURL string) string {
+	parsed, err := url.Parse(imageURL)
+	if err != nil {
+		return "emotion-image"
+	}
+	name := path.Base(parsed.Path)
+	if name == "." || name == "/" || name == "" {
+		return "emotion-image"
+	}
+	return name
 }
