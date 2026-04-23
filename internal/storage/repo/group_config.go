@@ -15,6 +15,8 @@ type GroupConfig interface {
 	GetByChatID(chatID int64) (*model.GroupConfig, error)
 	SetReplyMultiplier(chatID int64, groupName string, multiplier float64) error
 	SetEmotionNSFWMode(chatID int64, groupName string, mode int) error
+	SetPersona(chatID int64, groupName string, persona string, updatedBy int64) error
+	ClearPersona(chatID int64, groupName string) error
 }
 
 type groupConfigStorage struct {
@@ -73,6 +75,40 @@ func (s *groupConfigStorage) SetEmotionNSFWMode(chatID int64, groupName string, 
 	assignments := map[string]any{
 		"emotion_nsfw_mode": mode,
 		"updated_at":        time.Now(),
+	}
+	if groupName != "" {
+		assignments["group_name"] = groupName
+	}
+	return s.upsert(record, assignments)
+}
+
+func (s *groupConfigStorage) SetPersona(chatID int64, groupName string, persona string, updatedBy int64) error {
+	record := &model.GroupConfig{
+		ChatID:           chatID,
+		GroupName:        groupName,
+		Persona:          persona,
+		PersonaUpdatedBy: updatedBy,
+	}
+	assignments := map[string]any{
+		"persona":            persona,
+		"persona_updated_by": updatedBy,
+		"updated_at":         time.Now(),
+	}
+	if groupName != "" {
+		assignments["group_name"] = groupName
+	}
+	return s.upsert(record, assignments)
+}
+
+func (s *groupConfigStorage) ClearPersona(chatID int64, groupName string) error {
+	record := &model.GroupConfig{
+		ChatID:    chatID,
+		GroupName: groupName,
+	}
+	assignments := map[string]any{
+		"persona":            "",
+		"persona_updated_by": int64(0),
+		"updated_at":         time.Now(),
 	}
 	if groupName != "" {
 		assignments["group_name"] = groupName

@@ -45,6 +45,36 @@ func (f *fakeGroupConfigRepo) SetEmotionNSFWMode(chatID int64, groupName string,
 	return nil
 }
 
+func (f *fakeGroupConfigRepo) SetPersona(chatID int64, groupName string, persona string, updatedBy int64) error {
+	if f.records == nil {
+		f.records = map[int64]*model.GroupConfig{}
+	}
+	record := f.records[chatID]
+	if record == nil {
+		record = &model.GroupConfig{ChatID: chatID}
+		f.records[chatID] = record
+	}
+	record.GroupName = groupName
+	record.Persona = persona
+	record.PersonaUpdatedBy = updatedBy
+	return nil
+}
+
+func (f *fakeGroupConfigRepo) ClearPersona(chatID int64, groupName string) error {
+	if f.records == nil {
+		f.records = map[int64]*model.GroupConfig{}
+	}
+	record := f.records[chatID]
+	if record == nil {
+		record = &model.GroupConfig{ChatID: chatID}
+		f.records[chatID] = record
+	}
+	record.GroupName = groupName
+	record.Persona = ""
+	record.PersonaUpdatedBy = 0
+	return nil
+}
+
 func TestGroupEmotionNSFWConfigDefault(t *testing.T) {
 	cfg := NewGroupEmotionNSFWConfig(&fakeGroupConfigRepo{})
 	if got := cfg.mode(-1001); got != groupEmotionNSFWModeSafe {

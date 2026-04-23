@@ -45,7 +45,7 @@ type geminiHandler struct {
 	ai                ai.AiInterface
 	imgHandlerAi      ai.AiInterface
 	chatRepo          repo.Chat
-	groupPersonaRepo  repo.GroupPersona
+	groupConfigRepo   repo.GroupConfig
 	emotionClient     *emotionReplyClient
 	groupReplyTrigger *GroupReplyTriggerConfig
 	groupEmotionNSFW  *GroupEmotionNSFWConfig
@@ -129,9 +129,9 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 	if err != nil {
 		log.Error().Err(err).Msg("failed to init chat repo for handler")
 	}
-	groupPersonaRepo, err := repo.InitGroupPersonaRepo()
+	groupConfigRepo, err := repo.InitGroupConfigRepo()
 	if err != nil {
-		log.Error().Err(err).Msg("failed to init group persona repo for handler")
+		log.Error().Err(err).Msg("failed to init group config repo for handler")
 	}
 	if groupReplyTrigger == nil {
 		groupReplyTrigger = NewGroupReplyTriggerConfig()
@@ -144,11 +144,11 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 		chatCache:         cache,
 		ai:                aiProvider,
 		chatRepo:          chatRepo,
-		groupPersonaRepo:  groupPersonaRepo,
+		groupConfigRepo:   groupConfigRepo,
 		emotionClient:     newEmotionReplyClient(emotionCfg),
 		groupReplyTrigger: groupReplyTrigger,
 		groupEmotionNSFW:  groupEmotionNSFW,
-		groupPersona:      NewGroupPersonaManager(groupPersonaRepo),
+		groupPersona:      NewGroupPersonaManager(groupConfigRepo),
 	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})

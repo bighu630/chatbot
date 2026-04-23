@@ -18,14 +18,14 @@ const (
 )
 
 type GroupPersonaManager struct {
-	repo repo.GroupPersona
+	repo repo.GroupConfig
 
 	mu        sync.RWMutex
 	cache     map[int64]string
 	forceNext map[int64]bool
 }
 
-func NewGroupPersonaManager(personaRepo repo.GroupPersona) *GroupPersonaManager {
+func NewGroupPersonaManager(personaRepo repo.GroupConfig) *GroupPersonaManager {
 	return &GroupPersonaManager{
 		repo:      personaRepo,
 		cache:     make(map[int64]string),
@@ -73,7 +73,7 @@ func (m *GroupPersonaManager) Persona(chatID int64) string {
 	return persona
 }
 
-func (m *GroupPersonaManager) Set(chatID int64, persona string, updatedBy int64) error {
+func (m *GroupPersonaManager) Set(chatID int64, groupName string, persona string, updatedBy int64) error {
 	if m == nil {
 		return fmt.Errorf("group persona manager is nil")
 	}
@@ -85,7 +85,7 @@ func (m *GroupPersonaManager) Set(chatID int64, persona string, updatedBy int64)
 	if m.repo == nil {
 		return fmt.Errorf("group persona repo is nil")
 	}
-	if err := m.repo.Upsert(chatID, persona, updatedBy); err != nil {
+	if err := m.repo.SetPersona(chatID, groupName, persona, updatedBy); err != nil {
 		return err
 	}
 
@@ -96,14 +96,14 @@ func (m *GroupPersonaManager) Set(chatID int64, persona string, updatedBy int64)
 	return nil
 }
 
-func (m *GroupPersonaManager) Clear(chatID int64) error {
+func (m *GroupPersonaManager) Clear(chatID int64, groupName string) error {
 	if m == nil {
 		return fmt.Errorf("group persona manager is nil")
 	}
 	if m.repo == nil {
 		return fmt.Errorf("group persona repo is nil")
 	}
-	if err := m.repo.Delete(chatID); err != nil {
+	if err := m.repo.ClearPersona(chatID, groupName); err != nil {
 		return err
 	}
 
@@ -171,7 +171,7 @@ func NewGroupPersonaHandler(manager *GroupPersonaManager, adminUserIDs []int64) 
 		if ctx.EffectiveSender != nil {
 			operatorID = ctx.EffectiveSender.Id()
 		}
-		if err := manager.Set(ctx.EffectiveChat.Id, persona, operatorID); err != nil {
+		if err := manager.Set(ctx.EffectiveChat.Id, ctx.EffectiveChat.Title, persona, operatorID); err != nil {
 			_, sendErr := b.SendMessage(ctx.EffectiveChat.Id, fmt.Sprintf("群人设保存失败：%v。", err), nil)
 			if sendErr != nil {
 				return sendErr
@@ -212,7 +212,7 @@ func NewGroupPersonaClearHandler(manager *GroupPersonaManager, adminUserIDs []in
 			return err
 		}
 
-		if err := manager.Clear(ctx.EffectiveChat.Id); err != nil {
+		if err := manager.Clear(ctx.EffectiveChat.Id, ctx.EffectiveChat.Title); err != nil {
 			_, sendErr := b.SendMessage(ctx.EffectiveChat.Id, "清理群人设失败，请稍后再试。", nil)
 			if sendErr != nil {
 				return sendErr
