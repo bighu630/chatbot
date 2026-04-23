@@ -1,34 +1,66 @@
 package handler
 
 import (
-	"os"
-	"path/filepath"
-	"testing"
-
 	"chatbot/internal/ai"
+	"chatbot/internal/storage/model"
+	"testing"
 )
 
+type fakeGroupConfigRepo struct {
+	records map[int64]*model.GroupConfig
+}
+
+func (f *fakeGroupConfigRepo) GetByChatID(chatID int64) (*model.GroupConfig, error) {
+	if f.records == nil {
+		return nil, nil
+	}
+	return f.records[chatID], nil
+}
+
+func (f *fakeGroupConfigRepo) SetReplyMultiplier(chatID int64, groupName string, multiplier float64) error {
+	if f.records == nil {
+		f.records = map[int64]*model.GroupConfig{}
+	}
+	record := f.records[chatID]
+	if record == nil {
+		record = &model.GroupConfig{ChatID: chatID}
+		f.records[chatID] = record
+	}
+	record.GroupName = groupName
+	record.ReplyMultiplier = &multiplier
+	return nil
+}
+
+func (f *fakeGroupConfigRepo) SetEmotionNSFWMode(chatID int64, groupName string, mode int) error {
+	if f.records == nil {
+		f.records = map[int64]*model.GroupConfig{}
+	}
+	record := f.records[chatID]
+	if record == nil {
+		record = &model.GroupConfig{ChatID: chatID}
+		f.records[chatID] = record
+	}
+	record.GroupName = groupName
+	record.EmotionNSFWMode = &mode
+	return nil
+}
+
 func TestGroupEmotionNSFWConfigDefault(t *testing.T) {
-	cfg := NewGroupEmotionNSFWConfig(filepath.Join(t.TempDir(), "missing.json"))
+	cfg := NewGroupEmotionNSFWConfig(&fakeGroupConfigRepo{})
 	if got := cfg.mode(-1001); got != groupEmotionNSFWModeSafe {
 		t.Fatalf("mode = %d, want %d", got, groupEmotionNSFWModeSafe)
 	}
 }
 
 func TestGroupEmotionNSFWConfigModes(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "group_emotion_nsfw.json")
-	if err := os.WriteFile(path, []byte(`{
-		"default": 2,
-		"groups": {
-			"-1001": 0,
-			"-1002": 1,
-			"-1003": 2,
-			"-1004": 99
-		}
-	}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg := NewGroupEmotionNSFWConfig(path)
+	cfg := NewGroupEmotionNSFWConfig(&fakeGroupConfigRepo{
+		records: map[int64]*model.GroupConfig{
+			-1001: {ChatID: -1001, EmotionNSFWMode: intPtr(0)},
+			-1002: {ChatID: -1002, EmotionNSFWMode: intPtr(1)},
+			-1003: {ChatID: -1003, EmotionNSFWMode: intPtr(2)},
+			-1004: {ChatID: -1004, EmotionNSFWMode: intPtr(99)},
+		},
+	})
 	tests := []struct {
 		chatID int64
 		want   int
@@ -37,7 +69,7 @@ func TestGroupEmotionNSFWConfigModes(t *testing.T) {
 		{-1002, 1},
 		{-1003, 2},
 		{-1004, 2},
-		{-1005, 2},
+		{-1005, 0},
 	}
 	for _, tt := range tests {
 		if got := cfg.mode(tt.chatID); got != tt.want {
@@ -47,14 +79,13 @@ func TestGroupEmotionNSFWConfigModes(t *testing.T) {
 }
 
 func TestGroupEmotionNSFWApply(t *testing.T) {
-	cfg := &GroupEmotionNSFWConfig{
-		Default: 0,
-		Groups: map[string]int{
-			"-1001": 0,
-			"-1002": 1,
-			"-1003": 2,
+	cfg := NewGroupEmotionNSFWConfig(&fakeGroupConfigRepo{
+		records: map[int64]*model.GroupConfig{
+			-1001: {ChatID: -1001, EmotionNSFWMode: intPtr(0)},
+			-1002: {ChatID: -1002, EmotionNSFWMode: intPtr(1)},
+			-1003: {ChatID: -1003, EmotionNSFWMode: intPtr(2)},
 		},
-	}
+	})
 	tests := []struct {
 		chatID int64
 		want   *bool
@@ -78,17 +109,28 @@ func TestGroupEmotionNSFWApply(t *testing.T) {
 }
 
 func TestGroupEmotionNSFWSetAndSave(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "group_emotion_nsfw.json")
-	cfg := NewGroupEmotionNSFWConfig(path)
-	if err := cfg.setGroupMode(-1001, 1); err != nil {
+	store := &fakeGroupConfigRepo{}
+	cfg := NewGroupEmotionNSFWConfig(store)
+	if err := cfg.setGroupMode(-1001, "测试群", 1); err != nil {
 		t.Fatal(err)
 	}
-	reloaded := NewGroupEmotionNSFWConfig(path)
-	if got := reloaded.mode(-1001); got != 1 {
+	if got := cfg.mode(-1001); got != 1 {
 		t.Fatalf("mode = %d, want 1", got)
+	}
+	record := store.records[-1001]
+	if record == nil || record.GroupName != "测试群" || record.EmotionNSFWMode == nil || *record.EmotionNSFWMode != 1 {
+		t.Fatalf("record = %#v, want saved mode and group name", record)
 	}
 }
 
 func boolPtr(v bool) *bool {
+	return &v
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+func floatPtr(v float64) *float64 {
 	return &v
 }

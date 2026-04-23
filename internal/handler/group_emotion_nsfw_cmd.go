@@ -40,7 +40,7 @@ func NewGroupEmotionNSFWHandler(cfg *GroupEmotionNSFWConfig, adminUserIDs []int6
 			return err
 		}
 
-		if err := cfg.setGroupMode(ctx.EffectiveChat.Id, mode); err != nil {
+		if err := cfg.setGroupMode(ctx.EffectiveChat.Id, ctx.EffectiveChat.Title, mode); err != nil {
 			log.Error().Err(err).Int64("chat_id", ctx.EffectiveChat.Id).Int("mode", mode).Msg("failed to save group emotion nsfw mode")
 			_, sendErr := b.SendMessage(ctx.EffectiveChat.Id, "NSFW 模式保存失败，请稍后再试。", nil)
 			if sendErr != nil {

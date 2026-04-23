@@ -1,14 +1,13 @@
 package handler
 
 import (
+	"chatbot/internal/storage/model"
 	"math"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
 func TestGroupReplyTriggerRateDefaults(t *testing.T) {
-	cfg := NewGroupReplyTriggerConfig(filepath.Join(t.TempDir(), "missing.json"))
+	cfg := NewGroupReplyTriggerConfig(&fakeGroupConfigRepo{})
 
 	if got := cfg.rate(-1001); !floatEquals(got, randomGroupReplyBaseRate) {
 		t.Fatalf("default rate = %v, want %v", got, randomGroupReplyBaseRate)
@@ -16,19 +15,15 @@ func TestGroupReplyTriggerRateDefaults(t *testing.T) {
 }
 
 func TestGroupReplyTriggerRateOverrides(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "group_reply_trigger.json")
-	if err := os.WriteFile(path, []byte(`{
-		"groups": {
-			"-1001": 0,
-			"-1002": 10,
-			"-1003": 99,
-			"-1004": -1
-		}
-	}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	cfg := NewGroupReplyTriggerConfig(&fakeGroupConfigRepo{
+		records: map[int64]*model.GroupConfig{
+			-1001: {ChatID: -1001, ReplyMultiplier: floatPtr(0)},
+			-1002: {ChatID: -1002, ReplyMultiplier: floatPtr(10)},
+			-1003: {ChatID: -1003, ReplyMultiplier: floatPtr(99)},
+			-1004: {ChatID: -1004, ReplyMultiplier: floatPtr(-1)},
+		},
+	})
 
-	cfg := NewGroupReplyTriggerConfig(path)
 	tests := []struct {
 		chatID int64
 		want   float64
@@ -47,40 +42,19 @@ func TestGroupReplyTriggerRateOverrides(t *testing.T) {
 	}
 }
 
-func TestGroupReplyTriggerDefaultOverride(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "group_reply_trigger.json")
-	if err := os.WriteFile(path, []byte(`{"default": 2}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := NewGroupReplyTriggerConfig(path)
-	if got, want := cfg.rate(-1001), randomGroupReplyBaseRate*2; !floatEquals(got, want) {
-		t.Fatalf("rate = %v, want %v", got, want)
-	}
-}
-
-func TestGroupReplyTriggerSimpleMap(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "group_reply_trigger.json")
-	if err := os.WriteFile(path, []byte(`{"-1001": 3}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := NewGroupReplyTriggerConfig(path)
-	if got, want := cfg.rate(-1001), randomGroupReplyBaseRate*3; !floatEquals(got, want) {
-		t.Fatalf("rate = %v, want %v", got, want)
-	}
-}
-
 func TestGroupReplyTriggerSetAndSave(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "group_reply_trigger.json")
-	cfg := NewGroupReplyTriggerConfig(path)
-	if err := cfg.setGroupMultiplier(-1001, 8); err != nil {
+	store := &fakeGroupConfigRepo{}
+	cfg := NewGroupReplyTriggerConfig(store)
+	if err := cfg.setGroupMultiplier(-1001, "测试群", 8); err != nil {
 		t.Fatal(err)
 	}
 
-	reloaded := NewGroupReplyTriggerConfig(path)
-	if got, want := reloaded.rate(-1001), randomGroupReplyBaseRate*8; !floatEquals(got, want) {
+	if got, want := cfg.rate(-1001), randomGroupReplyBaseRate*8; !floatEquals(got, want) {
 		t.Fatalf("rate = %v, want %v", got, want)
+	}
+	record := store.records[-1001]
+	if record == nil || record.GroupName != "测试群" || record.ReplyMultiplier == nil || *record.ReplyMultiplier != 8 {
+		t.Fatalf("record = %#v, want saved multiplier and group name", record)
 	}
 }
 

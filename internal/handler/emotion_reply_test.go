@@ -2,6 +2,7 @@ package handler
 
 import (
 	"chatbot/internal/ai"
+	"chatbot/internal/storage/model"
 	"chatbot/pkg/config"
 	"encoding/json"
 	"io"
@@ -69,7 +70,11 @@ func TestEmotionReplyClientSearchImage(t *testing.T) {
 }
 
 func TestGroupEmotionNSFWApplyToSearchPayload(t *testing.T) {
-	cfg := &GroupEmotionNSFWConfig{Groups: map[string]int{"-1001": 1}}
+	cfg := NewGroupEmotionNSFWConfig(&fakeGroupConfigRepo{
+		records: map[int64]*model.GroupConfig{
+			-1001: {ChatID: -1001, EmotionNSFWMode: intPtr(1)},
+		},
+	})
 	params := ai.EmotionSearchParams{}
 	mode := cfg.apply(&params, -1001)
 	if mode != 1 {

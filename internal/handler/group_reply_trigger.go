@@ -1,138 +1,101 @@
 package handler
 
 import (
-	"bytes"
-	"encoding/json"
+	"chatbot/internal/storage/repo"
 	"errors"
-	"os"
-	"path/filepath"
-	"strconv"
 	"sync"
 
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	defaultGroupReplyTriggerFile = "./data/group_reply_trigger.json"
-	defaultGroupReplyMultiplier  = 1.0
-	minGroupReplyMultiplier      = 0.0
-	maxGroupReplyMultiplier      = 10.0
-	randomGroupReplyBaseRate     = 0.003
+	defaultGroupReplyMultiplier = 1.0
+	minGroupReplyMultiplier     = 0.0
+	maxGroupReplyMultiplier     = 10.0
+	randomGroupReplyBaseRate    = 0.003
 )
 
 type GroupReplyTriggerConfig struct {
-	mu      sync.RWMutex       `json:"-"`
-	path    string             `json:"-"`
-	Default float64            `json:"default"`
-	Groups  map[string]float64 `json:"groups"`
+	mu     sync.RWMutex
+	repo   repo.GroupConfig
+	cached map[int64]float64
+	loaded map[int64]struct{}
 }
 
-func NewGroupReplyTriggerConfig(paths ...string) *GroupReplyTriggerConfig {
-	path := defaultGroupReplyTriggerFile
-	if len(paths) > 0 && paths[0] != "" {
-		path = paths[0]
-	}
-	cfg := &GroupReplyTriggerConfig{
-		path:    path,
-		Default: defaultGroupReplyMultiplier,
-		Groups:  map[string]float64{},
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			log.Warn().Err(err).Str("path", path).Msg("failed to read group reply trigger config; using defaults")
-		}
-		return cfg
-	}
-	if len(bytes.TrimSpace(data)) == 0 {
-		return cfg
-	}
-
-	if err := decodeGroupReplyTriggerConfig(data, cfg); err != nil {
-		log.Warn().Err(err).Str("path", path).Msg("failed to parse group reply trigger config; using defaults")
-		return &GroupReplyTriggerConfig{
-			path:    path,
-			Default: defaultGroupReplyMultiplier,
-			Groups:  map[string]float64{},
+func NewGroupReplyTriggerConfig(stores ...repo.GroupConfig) *GroupReplyTriggerConfig {
+	var store repo.GroupConfig
+	if len(stores) > 0 {
+		store = stores[0]
+	} else {
+		var err error
+		store, err = repo.InitGroupConfigRepo()
+		if err != nil {
+			log.Error().Err(err).Msg("failed to init group config repo for reply trigger")
 		}
 	}
-	cfg.Default = clampGroupReplyMultiplier(cfg.Default)
-	if cfg.Groups == nil {
-		cfg.Groups = map[string]float64{}
+	return &GroupReplyTriggerConfig{
+		repo:   store,
+		cached: make(map[int64]float64),
+		loaded: make(map[int64]struct{}),
 	}
-	for chatID, multiplier := range cfg.Groups {
-		cfg.Groups[chatID] = clampGroupReplyMultiplier(multiplier)
-	}
-	log.Info().Str("path", path).Int("groups", len(cfg.Groups)).Float64("default", cfg.Default).Msg("loaded group reply trigger config")
-	return cfg
-}
-
-func decodeGroupReplyTriggerConfig(data []byte, cfg *GroupReplyTriggerConfig) error {
-	raw := map[string]json.RawMessage{}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	if _, ok := raw["default"]; ok {
-		return json.Unmarshal(data, cfg)
-	}
-	if _, ok := raw["groups"]; ok {
-		return json.Unmarshal(data, cfg)
-	}
-
-	groups := map[string]float64{}
-	if err := json.Unmarshal(data, &groups); err != nil {
-		return err
-	}
-	cfg.Groups = groups
-	return nil
 }
 
 func (c *GroupReplyTriggerConfig) rate(chatID int64) float64 {
-	multiplier := defaultGroupReplyMultiplier
-	if c != nil {
-		c.mu.RLock()
-		defer c.mu.RUnlock()
-		multiplier = c.Default
-		if c.Groups != nil {
-			if value, ok := c.Groups[strconv.FormatInt(chatID, 10)]; ok {
-				multiplier = value
-			}
-		}
-	}
-	return clampPercentage(randomGroupReplyBaseRate * clampGroupReplyMultiplier(multiplier))
+	return clampPercentage(randomGroupReplyBaseRate * c.multiplier(chatID))
 }
 
-func (c *GroupReplyTriggerConfig) setGroupMultiplier(chatID int64, multiplier float64) error {
+func (c *GroupReplyTriggerConfig) multiplier(chatID int64) float64 {
+	multiplier := defaultGroupReplyMultiplier
+	if c == nil {
+		return multiplier
+	}
+
+	c.mu.RLock()
+	value, ok := c.cached[chatID]
+	_, loaded := c.loaded[chatID]
+	c.mu.RUnlock()
+	if ok {
+		return clampGroupReplyMultiplier(value)
+	}
+	if loaded || c.repo == nil {
+		return multiplier
+	}
+
+	record, err := c.repo.GetByChatID(chatID)
+	if err != nil {
+		log.Error().Err(err).Int64("chat_id", chatID).Msg("failed to load group reply multiplier")
+		return multiplier
+	}
+	if record != nil && record.ReplyMultiplier != nil {
+		multiplier = clampGroupReplyMultiplier(*record.ReplyMultiplier)
+	}
+
+	c.mu.Lock()
+	c.loaded[chatID] = struct{}{}
+	if record != nil && record.ReplyMultiplier != nil {
+		c.cached[chatID] = multiplier
+	}
+	c.mu.Unlock()
+	return multiplier
+}
+
+func (c *GroupReplyTriggerConfig) setGroupMultiplier(chatID int64, groupName string, multiplier float64) error {
 	if c == nil {
 		return errors.New("group reply trigger config is nil")
 	}
+	multiplier = clampGroupReplyMultiplier(multiplier)
+	if c.repo == nil {
+		return errors.New("group config repo is nil")
+	}
+	if err := c.repo.SetReplyMultiplier(chatID, groupName, multiplier); err != nil {
+		return err
+	}
+
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.path == "" {
-		c.path = defaultGroupReplyTriggerFile
-	}
-	if c.Groups == nil {
-		c.Groups = map[string]float64{}
-	}
-	c.Groups[strconv.FormatInt(chatID, 10)] = clampGroupReplyMultiplier(multiplier)
-	return c.saveLocked()
-}
-
-func (c *GroupReplyTriggerConfig) saveLocked() error {
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := c.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, c.path)
+	c.cached[chatID] = multiplier
+	c.loaded[chatID] = struct{}{}
+	c.mu.Unlock()
+	return nil
 }
 
 func clampGroupReplyMultiplier(multiplier float64) float64 {

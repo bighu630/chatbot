@@ -46,6 +46,39 @@ func TestIsSlashCommand(t *testing.T) {
 	}
 }
 
+func TestShouldSkipGroupSlashCommand(t *testing.T) {
+	ctx := &ext.Context{
+		EffectiveChat: &gotgbot.Chat{Type: "supergroup"},
+		EffectiveMessage: &gotgbot.Message{
+			Text: "/persona 新人设",
+		},
+	}
+	if !shouldSkipGroupSlashCommand(ctx) {
+		t.Fatal("expected group slash command to be skipped")
+	}
+
+	ctx.EffectiveMessage.Text = "普通消息"
+	if shouldSkipGroupSlashCommand(ctx) {
+		t.Fatal("expected non-command group message not to be skipped")
+	}
+
+	ctx.EffectiveMessage.Text = "/chat hello"
+	if shouldSkipGroupSlashCommand(ctx) {
+		t.Fatal("expected group /chat command not to be skipped")
+	}
+
+	ctx.EffectiveMessage.Text = "/chat@my_bot hello"
+	if shouldSkipGroupSlashCommand(ctx) {
+		t.Fatal("expected group /chat@bot command not to be skipped")
+	}
+
+	ctx.EffectiveChat.Type = "private"
+	ctx.EffectiveMessage.Text = "/chat hello"
+	if shouldSkipGroupSlashCommand(ctx) {
+		t.Fatal("expected private slash command not to be skipped by group rule")
+	}
+}
+
 func TestHasBotMention(t *testing.T) {
 	bot := &gotgbot.Bot{User: gotgbot.User{Id: 100, Username: "my_bot"}}
 

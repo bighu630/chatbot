@@ -68,6 +68,16 @@ func isSlashCommand(text string) bool {
 	return strings.HasPrefix(firstToken(text), "/")
 }
 
+func shouldSkipGroupSlashCommand(ctx *ext.Context) bool {
+	if ctx == nil || ctx.EffectiveChat == nil || ctx.EffectiveMessage == nil {
+		return false
+	}
+	if ctx.EffectiveChat.Type != "group" && ctx.EffectiveChat.Type != "supergroup" {
+		return false
+	}
+	return isSlashCommand(ctx.EffectiveMessage.Text) && !isChatCommand(ctx.EffectiveMessage.Text)
+}
+
 func firstToken(text string) string {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
@@ -157,6 +167,9 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 				return false
 			}
 			return (ctx.EffectiveMessage.ReplyToMessage == nil || ctx.EffectiveMessage.ReplyToMessage.From.Username != b.Username)
+		}
+		if shouldSkipGroupSlashCommand(ctx) {
+			return false
 		}
 		if ctx.EffectiveMessage.ReplyToMessage != nil &&
 			ctx.EffectiveMessage.ReplyToMessage.From.Username == b.Username {

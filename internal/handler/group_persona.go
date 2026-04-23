@@ -184,7 +184,7 @@ func NewGroupPersonaHandler(manager *GroupPersonaManager, adminUserIDs []int64) 
 			Int64("operator_id", operatorID).
 			Int("persona_length", len([]rune(persona))).
 			Msg("group persona updated")
-		_, err = b.SendMessage(ctx.EffectiveChat.Id, "已设置本群人设。机器人名字固定是摘星，不会被修改；下一次群聊回复会强制按新人设走一次完整分支。", nil)
+		_, err = b.SendMessage(ctx.EffectiveChat.Id, "已设置本群人设。", nil)
 		return err
 	}
 }

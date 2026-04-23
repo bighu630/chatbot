@@ -40,7 +40,7 @@ func NewGroupReplyActivityHandler(trigger *GroupReplyTriggerConfig, adminUserIDs
 			return err
 		}
 
-		if err := trigger.setGroupMultiplier(ctx.EffectiveChat.Id, multiplier); err != nil {
+		if err := trigger.setGroupMultiplier(ctx.EffectiveChat.Id, ctx.EffectiveChat.Title, multiplier); err != nil {
 			log.Error().Err(err).Int64("chat_id", ctx.EffectiveChat.Id).Float64("multiplier", multiplier).Msg("failed to save group reply activity")
 			_, sendErr := b.SendMessage(ctx.EffectiveChat.Id, "活跃度保存失败，请稍后再试。", nil)
 			if sendErr != nil {
