@@ -11,7 +11,7 @@ import (
 const (
 	defaultGroupReplyMultiplier = 1.0
 	minGroupReplyMultiplier     = 0.0
-	maxGroupReplyMultiplier     = 10.0
+	maxGroupReplyMultiplier     = 20.0
 	randomGroupReplyBaseRate    = 0.003
 )
 

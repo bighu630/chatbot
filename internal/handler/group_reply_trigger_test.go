@@ -18,7 +18,7 @@ func TestGroupReplyTriggerRateOverrides(t *testing.T) {
 	cfg := NewGroupReplyTriggerConfig(&fakeGroupConfigRepo{
 		records: map[int64]*model.GroupConfig{
 			-1001: {ChatID: -1001, ReplyMultiplier: floatPtr(0)},
-			-1002: {ChatID: -1002, ReplyMultiplier: floatPtr(10)},
+			-1002: {ChatID: -1002, ReplyMultiplier: floatPtr(20)},
 			-1003: {ChatID: -1003, ReplyMultiplier: floatPtr(99)},
 			-1004: {ChatID: -1004, ReplyMultiplier: floatPtr(-1)},
 		},
@@ -29,8 +29,8 @@ func TestGroupReplyTriggerRateOverrides(t *testing.T) {
 		want   float64
 	}{
 		{chatID: -1001, want: 0},
-		{chatID: -1002, want: randomGroupReplyBaseRate * 10},
-		{chatID: -1003, want: randomGroupReplyBaseRate * 10},
+		{chatID: -1002, want: randomGroupReplyBaseRate * 20},
+		{chatID: -1003, want: randomGroupReplyBaseRate * 20},
 		{chatID: -1004, want: 0},
 		{chatID: -1005, want: randomGroupReplyBaseRate},
 	}

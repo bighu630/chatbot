@@ -24,7 +24,7 @@ func NewGroupReplyActivityHandler(trigger *GroupReplyTriggerConfig, adminUserIDs
 
 		multiplier, ok := parseGroupReplyActivity(ctx.EffectiveMessage.GetText())
 		if !ok {
-			_, err := b.SendMessage(ctx.EffectiveChat.Id, "用法：/activity 0-10，例如 /activity 3。0 表示关闭随机插话，10 表示放大 10 倍。", nil)
+			_, err := b.SendMessage(ctx.EffectiveChat.Id, "用法：/activity 0-20，例如 /activity 3。0 表示关闭随机插话，20 表示放大 20 倍。", nil)
 			return err
 		}
 

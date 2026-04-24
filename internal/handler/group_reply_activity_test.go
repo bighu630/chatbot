@@ -15,9 +15,10 @@ func TestParseGroupReplyActivity(t *testing.T) {
 	}{
 		{text: "/activity 0", want: 0, ok: true},
 		{text: "/activity 10", want: 10, ok: true},
+		{text: "/activity 20", want: 20, ok: true},
 		{text: "/setactivity 2.5", want: 2.5, ok: true},
 		{text: "/activity -1", ok: false},
-		{text: "/activity 11", ok: false},
+		{text: "/activity 21", ok: false},
 		{text: "/activity abc", ok: false},
 		{text: "/activity", ok: false},
 	}
@@ -40,6 +41,7 @@ func TestFormatGroupReplyActivity(t *testing.T) {
 	}{
 		{value: 0, want: "0"},
 		{value: 10, want: "10"},
+		{value: 20, want: "20"},
 		{value: 2.5, want: "2.5"},
 	}
 
