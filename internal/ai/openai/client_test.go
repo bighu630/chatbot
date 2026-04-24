@@ -2,6 +2,7 @@ package openai
 
 import (
 	"chatbot/pkg/config"
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -153,6 +154,46 @@ func TestShouldFallback(t *testing.T) {
 
 	if client.shouldFallback(&openai.APIError{HTTPStatusCode: 400, Message: "bad request"}) {
 		t.Fatal("expected 400 bad request to stay on primary provider")
+	}
+}
+
+func TestAddThinkingDisabled(t *testing.T) {
+	body := []byte(`{"model":"test","messages":[]}`)
+	updated, changed, err := addThinkingDisabled(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected request body to be updated")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(updated, &payload); err != nil {
+		t.Fatal(err)
+	}
+	thinking, ok := payload["thinking"].(map[string]any)
+	if !ok {
+		t.Fatalf("thinking = %#v, want object", payload["thinking"])
+	}
+	if thinking["type"] != thinkingTypeDisabled {
+		t.Fatalf("thinking.type = %q, want %q", thinking["type"], thinkingTypeDisabled)
+	}
+}
+
+func TestAddThinkingDisabledOverridesExistingValue(t *testing.T) {
+	body := []byte(`{"model":"test","thinking":{"type":"enabled"}}`)
+	updated, _, err := addThinkingDisabled(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(updated, &payload); err != nil {
+		t.Fatal(err)
+	}
+	thinking := payload["thinking"].(map[string]any)
+	if thinking["type"] != thinkingTypeDisabled {
+		t.Fatalf("thinking.type = %q, want %q", thinking["type"], thinkingTypeDisabled)
 	}
 }
 

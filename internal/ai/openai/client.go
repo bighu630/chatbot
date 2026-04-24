@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"chatbot/internal/ai"
 	"chatbot/internal/storage/model"
 	"chatbot/internal/storage/repo"
@@ -9,6 +10,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"runtime"
 	"strings"
 	"sync"
@@ -23,6 +26,7 @@ const (
 	historyLoadMaxParallel = 8
 	chatCompletionMaxToken = 1000
 	emotionSearchMaxToken  = 300
+	thinkingTypeDisabled   = "disabled"
 )
 
 var _ ai.AiInterface = (*openAi)(nil)
@@ -94,7 +98,64 @@ func NewOpenAi(cfg config.Ai) *openAi {
 func newClient(apiKey string, baseURL string) *openai.Client {
 	openaiConfig := openai.DefaultConfig(apiKey)
 	openaiConfig.BaseURL = baseURL
+	openaiConfig.HTTPClient = &http.Client{Transport: thinkingDisabledTransport{base: http.DefaultTransport}}
 	return openai.NewClientWithConfig(openaiConfig)
+}
+
+type thinkingDisabledTransport struct {
+	base http.RoundTripper
+}
+
+func (t thinkingDisabledTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil || req.Body == nil || req.Method != http.MethodPost || !strings.HasSuffix(req.URL.Path, "/chat/completions") {
+		return t.roundTrip(req)
+	}
+
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	_ = req.Body.Close()
+
+	body, changed, err := addThinkingDisabled(body)
+	if err != nil {
+		return nil, err
+	}
+	if changed {
+		req.Body = io.NopCloser(bytes.NewReader(body))
+		req.ContentLength = int64(len(body))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(body)), nil
+		}
+		req.Header.Set("Content-Length", fmt.Sprint(len(body)))
+	}
+	return t.roundTrip(req)
+}
+
+func (t thinkingDisabledTransport) roundTrip(req *http.Request) (*http.Response, error) {
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
+}
+
+func addThinkingDisabled(body []byte) ([]byte, bool, error) {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return body, false, nil
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, false, err
+	}
+	payload["thinking"] = map[string]any{"type": thinkingTypeDisabled}
+
+	updated, err := json.Marshal(payload)
+	if err != nil {
+		return nil, false, err
+	}
+	return updated, true, nil
 }
 
 func hasFallbackOpenAi(cfg config.Ai) bool {
