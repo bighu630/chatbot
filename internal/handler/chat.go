@@ -157,6 +157,9 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 	update.GetUpdater().Register(false, gai.ai.Name(), func(b *gotgbot.Bot, ctx *ext.Context) bool {
 		// youtube music handler
 		if ctx.EffectiveChat.Type == "private" {
+			if shouldSkipBotMessage(ctx, b) {
+				return false
+			}
 			if ctx.CallbackQuery != nil {
 				return false
 			}
@@ -169,6 +172,9 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 			return (ctx.EffectiveMessage.ReplyToMessage == nil || ctx.EffectiveMessage.ReplyToMessage.From.Username != b.Username)
 		}
 		if shouldSkipGroupSlashCommand(ctx) {
+			return false
+		}
+		if shouldSkipBotMessage(ctx, b) {
 			return false
 		}
 		if ctx.EffectiveMessage.ReplyToMessage != nil &&
@@ -251,11 +257,12 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
 		hmsg, _ := g.chatCache.GetChatMsgAndClean(sender)
 		chatContext = hmsg
-		persona := defaultGroupPersona
+		persona := g.groupPersonaForPrompt(ctx.EffectiveChat.Id)
+		forcePersonaPrompt := false
 		if g.groupPersona != nil {
-			persona = g.groupPersona.Persona(ctx.EffectiveChat.Id)
+			// Custom personas are temporarily disabled; clear a stale force flag if a command set one.
+			_ = g.groupPersona.ConsumeForceNext(ctx.EffectiveChat.Id)
 		}
-		forcePersonaPrompt := g.groupPersona != nil && g.groupPersona.ConsumeForceNext(ctx.EffectiveChat.Id)
 		if !forcePersonaPrompt && time.Now().UnixMicro()%50 != 0 { // 有1/50的概率走完整人设分支，其余只包含历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 新消息: %s`, hmsg, input)
@@ -319,6 +326,10 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 
 }
 
+func (g *geminiHandler) groupPersonaForPrompt(chatID int64) string {
+	return defaultGroupPersona
+}
+
 func imageForChatAnalysis(ctx *ext.Context, b *gotgbot.Bot) (gotgbot.PhotoSize, bool) {
 	if ctx == nil || ctx.EffectiveMessage == nil {
 		return gotgbot.PhotoSize{}, false
@@ -336,6 +347,13 @@ func imageForChatAnalysis(ctx *ext.Context, b *gotgbot.Bot) (gotgbot.PhotoSize, 
 		return gotgbot.PhotoSize{}, false
 	}
 	return reply.Photo[len(reply.Photo)-1], true
+}
+
+func shouldSkipBotMessage(ctx *ext.Context, b *gotgbot.Bot) bool {
+	if ctx == nil || ctx.EffectiveMessage == nil {
+		return false
+	}
+	return isMessageFromBot(ctx.EffectiveMessage, b)
 }
 
 func isMessageFromBot(msg *gotgbot.Message, b *gotgbot.Bot) bool {

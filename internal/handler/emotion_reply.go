@@ -21,6 +21,7 @@ import (
 
 const emotionReplyTriggerRate = 0.8
 const emotionReplyDownloadLimit = 20 * 1024 * 1024
+const emotionReplyEnabled = false
 
 type emotionReplyClient struct {
 	cfg        config.EmotionConfig
@@ -62,6 +63,10 @@ func newEmotionReplyClient(cfg config.EmotionConfig) *emotionReplyClient {
 }
 
 func (g *geminiHandler) maybeSendEmotionReply(b *gotgbot.Bot, ctx *ext.Context, chatContext string, userMessage string, botReply string) {
+	if !emotionReplyFeatureEnabled() {
+		log.Debug().Msg("skip emotion reply because feature is disabled")
+		return
+	}
 	if g.emotionClient == nil || ctx.EffectiveChat == nil {
 		return
 	}
@@ -304,4 +309,8 @@ func deriveEmotionImageName(imageURL string) string {
 		return "emotion-image"
 	}
 	return name
+}
+
+func emotionReplyFeatureEnabled() bool {
+	return emotionReplyEnabled
 }

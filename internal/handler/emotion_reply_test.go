@@ -91,6 +91,12 @@ func TestNewEmotionReplyClientDisabled(t *testing.T) {
 	}
 }
 
+func TestEmotionReplyFeatureDisabled(t *testing.T) {
+	if emotionReplyFeatureEnabled() {
+		t.Fatal("expected emotion reply feature to be disabled")
+	}
+}
+
 func TestBuildEmotionSearchParamsForNSFWOnly(t *testing.T) {
 	params := buildEmotionSearchParamsForNSFWOnly()
 	values := []float64{

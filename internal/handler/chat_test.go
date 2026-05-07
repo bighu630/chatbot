@@ -218,3 +218,35 @@ func TestImageForChatAnalysis(t *testing.T) {
 		t.Fatalf("bot reply photo should be skipped, got %q", got.FileId)
 	}
 }
+
+func TestShouldSkipBotMessage(t *testing.T) {
+	bot := &gotgbot.Bot{User: gotgbot.User{Id: 100, Username: "bot"}}
+	ctx := &ext.Context{
+		EffectiveMessage: &gotgbot.Message{
+			From: &gotgbot.User{Id: 100, Username: "bot"},
+		},
+	}
+
+	if !shouldSkipBotMessage(ctx, bot) {
+		t.Fatal("expected bot message to be skipped")
+	}
+
+	ctx.EffectiveMessage.From = &gotgbot.User{Id: 200, Username: "alice"}
+	if shouldSkipBotMessage(ctx, bot) {
+		t.Fatal("expected user message not to be skipped")
+	}
+}
+
+func TestGroupPersonaForPromptUsesDefaultPersona(t *testing.T) {
+	custom := "这是数据库里的自定义人设"
+	manager := NewGroupPersonaManager(&fakeGroupConfigRepo{
+		records: map[int64]*model.GroupConfig{
+			-1001: {ChatID: -1001, Persona: custom},
+		},
+	})
+	handler := &geminiHandler{groupPersona: manager}
+
+	if got := handler.groupPersonaForPrompt(-1001); got != defaultGroupPersona {
+		t.Fatalf("groupPersonaForPrompt() = %q, want default persona", got)
+	}
+}
