@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"bytes"
 	"chatbot/internal/ai"
 	"chatbot/internal/storage/model"
 	"chatbot/internal/storage/repo"
@@ -10,23 +9,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	sdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/rs/zerolog/log"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
-	saveTime               = 100 * time.Hour
-	historyLoadMaxParallel = 8
-	chatCompletionMaxToken = 1000
-	emotionSearchMaxToken  = 300
-	thinkingTypeDisabled   = "disabled"
+	saveTime                 = 100 * time.Hour
+	historyLoadMaxParallel   = 8
+	chatCompletionMaxToken   = 1000
+	emotionSearchMaxToken    = 300
+	thinkingTypeDisabled     = "disabled"
+	fallbackPersonaLeakReply = "我是摘星，群里普通聊天的。"
+	chatMessageRoleUser      = "user"
+	chatMessageRoleAssistant = "assistant"
+	chatMessageRoleSystem    = "system"
 )
 
 var _ ai.AiInterface = (*openAi)(nil)
@@ -34,14 +36,19 @@ var _ ai.EmotionSearchBuilder = (*openAi)(nil)
 
 type openAi struct {
 	db              repo.Chat
-	client          *openai.Client
-	fallbackClient  *openai.Client
+	client          *sdk.Client
+	fallbackClient  *sdk.Client
 	fallbackModel   string
 	fallbackEnabled bool
 	providerLock    sync.RWMutex
 	cfg             config.Ai
 	ctx             context.Context
-	chats           map[string][]openai.ChatCompletionMessage
+	chats           map[string][]chatMessage
+}
+
+type chatMessage struct {
+	Role    string
+	Content string
 }
 
 func NewOpenAi(cfg config.Ai) *openAi {
@@ -51,7 +58,7 @@ func NewOpenAi(cfg config.Ai) *openAi {
 		log.Panic().Err(err)
 	}
 	client := newClient(cfg.OpenAiKey, cfg.OpenAiBaseUrl)
-	var fallbackClient *openai.Client
+	var fallbackClient *sdk.Client
 	fallbackModel := cfg.FallbackOpenAiModel
 	if fallbackModel == "" {
 		fallbackModel = cfg.OpenAiModel
@@ -71,12 +78,12 @@ func NewOpenAi(cfg config.Ai) *openAi {
 
 	getRole := func(b bool) string {
 		if b {
-			return openai.ChatMessageRoleUser
+			return chatMessageRoleUser
 		}
-		return openai.ChatMessageRoleAssistant
+		return chatMessageRoleAssistant
 	}
 
-	css := make(map[string][]openai.ChatCompletionMessage)
+	css := make(map[string][]chatMessage)
 	if db != nil {
 		css = loadChatHistory(db, getRole)
 	}
@@ -95,67 +102,13 @@ func NewOpenAi(cfg config.Ai) *openAi {
 	return g
 }
 
-func newClient(apiKey string, baseURL string) *openai.Client {
-	openaiConfig := openai.DefaultConfig(apiKey)
-	openaiConfig.BaseURL = baseURL
-	openaiConfig.HTTPClient = &http.Client{Transport: thinkingDisabledTransport{base: http.DefaultTransport}}
-	return openai.NewClientWithConfig(openaiConfig)
-}
-
-type thinkingDisabledTransport struct {
-	base http.RoundTripper
-}
-
-func (t thinkingDisabledTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req == nil || req.Body == nil || req.Method != http.MethodPost || !strings.HasSuffix(req.URL.Path, "/chat/completions") {
-		return t.roundTrip(req)
+func newClient(apiKey string, baseURL string) *sdk.Client {
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if strings.TrimSpace(baseURL) != "" {
+		opts = append(opts, option.WithBaseURL(baseURL))
 	}
-
-	body, err := io.ReadAll(req.Body)
-	if err != nil {
-		return nil, err
-	}
-	_ = req.Body.Close()
-
-	body, changed, err := addThinkingDisabled(body)
-	if err != nil {
-		return nil, err
-	}
-	if changed {
-		req.Body = io.NopCloser(bytes.NewReader(body))
-		req.ContentLength = int64(len(body))
-		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(body)), nil
-		}
-		req.Header.Set("Content-Length", fmt.Sprint(len(body)))
-	}
-	return t.roundTrip(req)
-}
-
-func (t thinkingDisabledTransport) roundTrip(req *http.Request) (*http.Response, error) {
-	base := t.base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return base.RoundTrip(req)
-}
-
-func addThinkingDisabled(body []byte) ([]byte, bool, error) {
-	if len(bytes.TrimSpace(body)) == 0 {
-		return body, false, nil
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, false, err
-	}
-	payload["thinking"] = map[string]any{"type": thinkingTypeDisabled}
-
-	updated, err := json.Marshal(payload)
-	if err != nil {
-		return nil, false, err
-	}
-	return updated, true, nil
+	client := sdk.NewClient(opts...)
+	return &client
 }
 
 func hasFallbackOpenAi(cfg config.Ai) bool {
@@ -164,10 +117,10 @@ func hasFallbackOpenAi(cfg config.Ai) bool {
 		cfg.FallbackOpenAiBaseUrl != ""
 }
 
-func loadChatHistory(db repo.Chat, getRole func(bool) string) map[string][]openai.ChatCompletionMessage {
+func loadChatHistory(db repo.Chat, getRole func(bool) string) map[string][]chatMessage {
 	users := db.GetAllUser()
 	if len(users) == 0 {
-		return map[string][]openai.ChatCompletionMessage{}
+		return map[string][]chatMessage{}
 	}
 
 	now := time.Now()
@@ -183,7 +136,7 @@ func loadChatHistory(db repo.Chat, getRole func(bool) string) map[string][]opena
 
 	type historyResult struct {
 		user     string
-		messages []openai.ChatCompletionMessage
+		messages []chatMessage
 	}
 
 	jobs := make(chan string)
@@ -201,10 +154,16 @@ func loadChatHistory(db repo.Chat, getRole func(bool) string) map[string][]opena
 					continue
 				}
 
-				chatMessages := make([]openai.ChatCompletionMessage, 0, len(msgs))
+				chatMessages := make([]chatMessage, 0, len(msgs))
 				skippedEmpty := 0
 				for _, m := range msgs {
-					if chatMessage, ok := buildTextMessage(getRole(m.IsUser), m.Msg); ok {
+					role := getRole(m.IsUser)
+					content, ok := cleanChatHistoryContent(role, m.Msg)
+					if !ok {
+						skippedEmpty++
+						continue
+					}
+					if chatMessage, ok := buildTextMessage(role, content); ok {
 						chatMessages = append(chatMessages, chatMessage)
 					} else {
 						skippedEmpty++
@@ -231,7 +190,7 @@ func loadChatHistory(db repo.Chat, getRole func(bool) string) map[string][]opena
 		close(results)
 	}()
 
-	css := make(map[string][]openai.ChatCompletionMessage, len(users))
+	css := make(map[string][]chatMessage, len(users))
 	for result := range results {
 		css[result.user] = result.messages
 	}
@@ -248,23 +207,30 @@ func (o *openAi) HandleTextWithImg(msg string, imgType string, imgData []byte) (
 
 func (o *openAi) HandleText(msg string) (string, error) {
 	provider := o.currentProvider()
-	resp, err := provider.client.CreateCompletion(o.ctx, openai.CompletionRequest{
-		Model:     provider.model,
-		Prompt:    msg,
-		MaxTokens: 200,
+	resp, err := provider.client.Completions.New(o.ctx, sdk.CompletionNewParams{
+		Model: sdk.CompletionNewParamsModel(provider.model),
+		Prompt: sdk.CompletionNewParamsPromptUnion{
+			OfString: sdk.String(msg),
+		},
+		MaxTokens: sdk.Int(200),
 	})
 	if err != nil && provider.name == "primary" && o.shouldFallback(err) {
 		o.activateFallback(err)
 		provider = o.currentProvider()
-		resp, err = provider.client.CreateCompletion(o.ctx, openai.CompletionRequest{
-			Model:     provider.model,
-			Prompt:    msg,
-			MaxTokens: 200,
+		resp, err = provider.client.Completions.New(o.ctx, sdk.CompletionNewParams{
+			Model: sdk.CompletionNewParamsModel(provider.model),
+			Prompt: sdk.CompletionNewParamsPromptUnion{
+				OfString: sdk.String(msg),
+			},
+			MaxTokens: sdk.Int(200),
 		})
 	}
 	if err != nil {
 		log.Error().Err(err).Msg("could not get response from openai")
 		return "", err
+	}
+	if resp == nil || len(resp.Choices) == 0 {
+		return "", errors.New("openai returned no completion choices")
 	}
 	result := resp.Choices[0].Text
 	return result, nil
@@ -277,10 +243,10 @@ func (o *openAi) ChatWithImg(chatId string, msg string, imgType string, imgData 
 
 func (o *openAi) Chat(chatId string, msg string) (string, error) {
 	log.Debug().Str("getMsg", msg).Msg("get an chat message")
-	var chatMessages []openai.ChatCompletionMessage
+	var chatMessages []chatMessage
 	var ok bool
 	if chatMessages, ok = o.chats[chatId]; !ok {
-		chatMessages = []openai.ChatCompletionMessage{}
+		chatMessages = []chatMessage{}
 	}
 
 	if len(chatMessages) > 29 {
@@ -288,31 +254,39 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 	}
 	chatMessages = sanitizeChatMessages(chatMessages)
 
-	userMessage, ok := buildTextMessage(openai.ChatMessageRoleUser, msg)
+	userMessage, ok := buildTextMessage(chatMessageRoleUser, msg)
 	if !ok {
 		return "", errors.New("empty chat message")
 	}
-	chatMessages = append(chatMessages, userMessage)
+	historyContent, ok := cleanChatHistoryContent(chatMessageRoleUser, msg)
+	if !ok {
+		historyContent = userMessage.Content
+	}
+	historyUserMessage, ok := buildTextMessage(chatMessageRoleUser, historyContent)
+	if !ok {
+		historyUserMessage = userMessage
+	}
+	apiMessages := append(append([]chatMessage{}, chatMessages...), userMessage)
 	if o.db != nil {
 
-		if err := o.db.Add(model.NewChat(chatId, true, userMessage.Content)); err != nil {
+		if err := o.db.Add(model.NewChat(chatId, true, historyUserMessage.Content)); err != nil {
 			log.Error().Err(err).Msg("failed to add chat record")
 		}
 	}
 
 	for range 3 {
-		resp, err := o.createChatCompletion(chatMessages)
+		resp, err := o.createChatCompletion(apiMessages)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to send message to openai")
 		} else {
-			result := strings.TrimSpace(resp.Choices[0].Message.Content)
+			result := cleanAssistantOutput(resp)
 			if result == "" {
 				log.Error().Msg("openai returned empty chat content")
 				continue
 			}
-			assistantMessage, _ := buildTextMessage(openai.ChatMessageRoleAssistant, result)
-			chatMessages = append(chatMessages, assistantMessage)
-			o.chats[chatId] = chatMessages
+			assistantMessage, _ := buildTextMessage(chatMessageRoleAssistant, result)
+			chatMessages = append(chatMessages, historyUserMessage, assistantMessage)
+			o.chats[chatId] = sanitizeChatMessages(chatMessages)
 			if err := o.db.Add(model.NewChat(chatId, false, assistantMessage.Content)); err != nil {
 				log.Error().Err(err).Msg("failed to add chat record")
 				return "", err
@@ -320,8 +294,8 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 			return assistantMessage.Content, nil
 		}
 	}
-	chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleAssistant,
+	chatMessages = append(chatMessages, chatMessage{
+		Role:    chatMessageRoleAssistant,
 		Content: "I got something wrong. I'll try again.",
 	})
 	if err := o.db.Add(model.NewChat(chatId, false, "I got something wrong. I'll try again.")); err != nil {
@@ -331,15 +305,15 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 }
 
 func (o *openAi) AddChatMsg(chatId string, userSay string, botSay string) error {
-	var chatMessages []openai.ChatCompletionMessage
+	var chatMessages []chatMessage
 	var ok bool
 	if chatMessages, ok = o.chats[chatId]; !ok {
 		return nil
 	}
-	if userMessage, ok := buildTextMessage(openai.ChatMessageRoleUser, userSay); ok {
+	if userMessage, ok := buildTextMessage(chatMessageRoleUser, userSay); ok {
 		chatMessages = append(chatMessages, userMessage)
 	}
-	if assistantMessage, ok := buildTextMessage(openai.ChatMessageRoleAssistant, botSay); ok {
+	if assistantMessage, ok := buildTextMessage(chatMessageRoleAssistant, botSay); ok {
 		chatMessages = append(chatMessages, assistantMessage)
 	}
 	o.chats[chatId] = sanitizeChatMessages(chatMessages)
@@ -353,45 +327,23 @@ func (o *openAi) Translate(text string) (string, error) {
 func (o *openAi) BuildEmotionSearchParams(chatContext string, userMessage string, botReply string) (ai.EmotionSearchParams, error) {
 	prompt := buildEmotionSearchPrompt(chatContext, userMessage, botReply)
 	provider := o.currentProvider()
-	resp, err := provider.client.CreateChatCompletion(o.ctx, openai.ChatCompletionRequest{
-		Model:       provider.model,
-		Temperature: 0.2,
-		MaxTokens:   emotionSearchMaxToken,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: emotionSearchSystemPrompt,
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: prompt,
-			},
-		},
-	})
+	resp, err := o.createProviderChatCompletion(provider, []chatMessage{
+		{Role: chatMessageRoleSystem, Content: emotionSearchSystemPrompt},
+		{Role: chatMessageRoleUser, Content: prompt},
+	}, 0.2, emotionSearchMaxToken)
 	if err != nil && provider.name == "primary" && o.shouldFallback(err) {
 		o.activateFallback(err)
 		provider = o.currentProvider()
-		resp, err = provider.client.CreateChatCompletion(o.ctx, openai.ChatCompletionRequest{
-			Model:       provider.model,
-			Temperature: 0.2,
-			MaxTokens:   emotionSearchMaxToken,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleSystem,
-					Content: emotionSearchSystemPrompt,
-				},
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
-			},
-		})
+		resp, err = o.createProviderChatCompletion(provider, []chatMessage{
+			{Role: chatMessageRoleSystem, Content: emotionSearchSystemPrompt},
+			{Role: chatMessageRoleUser, Content: prompt},
+		}, 0.2, emotionSearchMaxToken)
 	}
 	if err != nil {
 		return ai.EmotionSearchParams{}, err
 	}
 
-	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	content := strings.TrimSpace(resp)
 	params, err := parseEmotionSearchParams(content)
 	if err != nil {
 		return ai.EmotionSearchParams{}, err
@@ -401,7 +353,7 @@ func (o *openAi) BuildEmotionSearchParams(chatContext string, userMessage string
 
 type openAiProvider struct {
 	name   string
-	client *openai.Client
+	client *sdk.Client
 	model  string
 }
 
@@ -424,26 +376,51 @@ func (o *openAi) currentProvider() openAiProvider {
 	}
 }
 
-func (o *openAi) createChatCompletion(messages []openai.ChatCompletionMessage) (openai.ChatCompletionResponse, error) {
+func (o *openAi) createChatCompletion(messages []chatMessage) (string, error) {
 	provider := o.currentProvider()
-	resp, err := provider.client.CreateChatCompletion(o.ctx, openai.ChatCompletionRequest{
-		Model:       provider.model,
-		Temperature: 1.3, // 对话适用1.3
-		Messages:    messages,
-		MaxTokens:   chatCompletionMaxToken,
-	})
+	resp, err := o.createProviderChatCompletion(provider, messages, 1.3, chatCompletionMaxToken)
 	if err == nil || provider.name == "fallback" || !o.shouldFallback(err) {
 		return resp, err
 	}
 
 	o.activateFallback(err)
 	provider = o.currentProvider()
-	return provider.client.CreateChatCompletion(o.ctx, openai.ChatCompletionRequest{
-		Model:       provider.model,
-		Temperature: 1.3,
-		Messages:    messages,
-		MaxTokens:   chatCompletionMaxToken,
-	})
+	return o.createProviderChatCompletion(provider, messages, 1.3, chatCompletionMaxToken)
+}
+
+func (o *openAi) createProviderChatCompletion(provider openAiProvider, messages []chatMessage, temperature float64, maxTokens int64) (string, error) {
+	resp, err := provider.client.Chat.Completions.New(o.ctx, sdk.ChatCompletionNewParams{
+		Model:       sdk.ChatModel(provider.model),
+		Messages:    toSDKMessages(messages),
+		Temperature: sdk.Float(temperature),
+		MaxTokens:   sdk.Int(maxTokens),
+	}, thinkingDisabledRequestOption())
+	if err != nil {
+		return "", err
+	}
+	if resp == nil || len(resp.Choices) == 0 {
+		return "", errors.New("openai returned no chat choices")
+	}
+	return resp.Choices[0].Message.Content, nil
+}
+
+func thinkingDisabledRequestOption() option.RequestOption {
+	return option.WithJSONSet("thinking", map[string]any{"type": thinkingTypeDisabled})
+}
+
+func toSDKMessages(messages []chatMessage) []sdk.ChatCompletionMessageParamUnion {
+	result := make([]sdk.ChatCompletionMessageParamUnion, 0, len(messages))
+	for _, message := range messages {
+		switch message.Role {
+		case chatMessageRoleSystem:
+			result = append(result, sdk.SystemMessage(message.Content))
+		case chatMessageRoleAssistant:
+			result = append(result, sdk.AssistantMessage(message.Content))
+		default:
+			result = append(result, sdk.UserMessage(message.Content))
+		}
+	}
+	return result
 }
 
 func (o *openAi) shouldFallback(err error) bool {
@@ -451,20 +428,12 @@ func (o *openAi) shouldFallback(err error) bool {
 		return false
 	}
 
-	var apiErr *openai.APIError
+	var apiErr *sdk.Error
 	if errors.As(err, &apiErr) {
-		if apiErr.HTTPStatusCode == 402 || apiErr.HTTPStatusCode == 403 || apiErr.HTTPStatusCode == 429 {
+		if apiErr.StatusCode == 402 || apiErr.StatusCode == 403 || apiErr.StatusCode == 429 {
 			return true
 		}
 		return isQuotaLikeError(apiErr.Message) || isQuotaLikeError(apiErr.Type) || isQuotaLikeError(fmt.Sprint(apiErr.Code))
-	}
-
-	var requestErr *openai.RequestError
-	if errors.As(err, &requestErr) {
-		if requestErr.HTTPStatusCode == 402 || requestErr.HTTPStatusCode == 403 || requestErr.HTTPStatusCode == 429 {
-			return true
-		}
-		return isQuotaLikeError(requestErr.Error())
 	}
 
 	return isQuotaLikeError(err.Error())
@@ -501,29 +470,141 @@ func (o *openAi) autoDeleteDB() {
 	}
 }
 
-func buildTextMessage(role string, content string) (openai.ChatCompletionMessage, bool) {
+func buildTextMessage(role string, content string) (chatMessage, bool) {
 	content = strings.TrimSpace(content)
 	if content == "" {
-		return openai.ChatCompletionMessage{}, false
+		return chatMessage{}, false
 	}
-	return openai.ChatCompletionMessage{
+	return chatMessage{
 		Role:    role,
 		Content: content,
 	}, true
 }
 
-func sanitizeChatMessages(messages []openai.ChatCompletionMessage) []openai.ChatCompletionMessage {
+func sanitizeChatMessages(messages []chatMessage) []chatMessage {
 	if len(messages) == 0 {
 		return messages
 	}
 
 	sanitized := messages[:0]
 	for _, message := range messages {
-		if cleaned, ok := buildTextMessage(message.Role, message.Content); ok {
+		content, ok := cleanChatHistoryContent(message.Role, message.Content)
+		if !ok {
+			continue
+		}
+		if cleaned, ok := buildTextMessage(message.Role, content); ok {
 			sanitized = append(sanitized, cleaned)
 		}
 	}
 	return sanitized
+}
+
+func cleanChatHistoryContent(role string, content string) (string, bool) {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return "", false
+	}
+
+	if role == chatMessageRoleUser {
+		content = extractVisibleUserMessage(content)
+		content = stripImageAnalysis(content)
+		return strings.TrimSpace(content), strings.TrimSpace(content) != ""
+	}
+
+	if containsInternalPromptMarker(content) || looksLikePersonaLeak(content) {
+		return "", false
+	}
+	return content, true
+}
+
+func extractVisibleUserMessage(content string) string {
+	markers := []string{
+		"\n收到新消息:",
+		"\n新消息:",
+		"收到新消息:",
+		"新消息:",
+	}
+	for _, marker := range markers {
+		if idx := strings.Index(content, marker); idx >= 0 {
+			content = content[idx+len(marker):]
+			break
+		}
+	}
+
+	endMarkers := []string{
+		"\n\n请以群友",
+		"\n请以群友",
+		"\n机器人名字固定",
+		"\n摘星人设：",
+		"\n风格要求：",
+		"\n请仅输出最终要发送的对话内容。",
+	}
+	for _, marker := range endMarkers {
+		if idx := strings.Index(content, marker); idx >= 0 {
+			content = content[:idx]
+		}
+	}
+	return content
+}
+
+func stripImageAnalysis(content string) string {
+	if idx := strings.Index(content, "\n对话包含图片内容"); idx >= 0 {
+		return content[:idx]
+	}
+	if idx := strings.Index(content, "对话包含图片内容"); idx >= 0 {
+		return content[:idx]
+	}
+	return content
+}
+
+func containsInternalPromptMarker(content string) bool {
+	markers := []string{
+		"对话历史(可酌情参考):",
+		"请以群友「摘星」的身份进行回复。",
+		"机器人名字固定是「摘星」",
+		"摘星人设：",
+		"风格要求：",
+		"请仅输出最终要发送的对话内容。",
+		"对话包含图片内容",
+	}
+	for _, marker := range markers {
+		if strings.Contains(content, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikePersonaLeak(content string) bool {
+	if strings.Contains(content, "普通群友") && strings.Contains(content, "学霸模式") {
+		return true
+	}
+	markers := []string{
+		"自守点",
+		"有限源数据寄存器",
+		"反应堆",
+		"边界稳在只进行",
+		"心智后台动作识别触发接口",
+		"结构维护简化",
+	}
+	for _, marker := range markers {
+		if strings.Contains(content, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanAssistantOutput(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	if containsInternalPromptMarker(content) || looksLikePersonaLeak(content) {
+		log.Warn().Msg("replace assistant output because it looks like persona or prompt leak")
+		return fallbackPersonaLeakReply
+	}
+	return content
 }
 
 func isQuotaLikeError(message string) bool {

@@ -3,10 +3,13 @@ package openai
 import (
 	"chatbot/pkg/config"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 
-	openai "github.com/sashabaranov/go-openai"
+	sdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 var openaiInstance *openAi
@@ -100,18 +103,99 @@ func TestBuildTextMessage(t *testing.T) {
 }
 
 func TestSanitizeChatMessages(t *testing.T) {
-	messages := []openai.ChatCompletionMessage{
+	messages := []chatMessage{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "   "},
 		{Role: "user", Content: "\nworld\n"},
+		{Role: "user", Content: "对话历史(可酌情参考): a: b||c: d\n新消息: 今天吃什么\n对话包含图片内容一张图"},
+		{Role: "assistant", Content: "请以群友「摘星」的身份进行回复。"},
 	}
 
 	sanitized := sanitizeChatMessages(messages)
-	if len(sanitized) != 2 {
-		t.Fatalf("sanitizeChatMessages len = %d, want 2", len(sanitized))
+	if len(sanitized) != 3 {
+		t.Fatalf("sanitizeChatMessages len = %d, want 3", len(sanitized))
 	}
 	if sanitized[1].Content != "world" {
 		t.Fatalf("sanitizeChatMessages content = %q, want %q", sanitized[1].Content, "world")
+	}
+	if sanitized[2].Content != "今天吃什么" {
+		t.Fatalf("sanitizeChatMessages prompt content = %q, want real user message", sanitized[2].Content)
+	}
+}
+
+func TestCleanChatHistoryContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		role    string
+		content string
+		want    string
+		wantOK  bool
+	}{
+		{
+			name: "extract plain user message from lightweight group prompt",
+			role: chatMessageRoleUser,
+			content: `对话历史(可酌情参考): alice: 早||bob: 好
+新消息: 今天吃什么`,
+			want:   "今天吃什么",
+			wantOK: true,
+		},
+		{
+			name: "extract plain user message from full persona prompt",
+			role: chatMessageRoleUser,
+			content: `对话历史(可酌情参考): alice: 早
+收到新消息: 你怎么看？
+
+请以群友「摘星」的身份进行回复。
+摘星人设： 平时像普通群友随意聊天。`,
+			want:   "你怎么看？",
+			wantOK: true,
+		},
+		{
+			name: "strip image analysis from stored user message",
+			role: chatMessageRoleUser,
+			content: `看看这个
+对话包含图片内容这张图是一只猫`,
+			want:   "看看这个",
+			wantOK: true,
+		},
+		{
+			name:    "skip assistant prompt leak",
+			role:    chatMessageRoleAssistant,
+			content: "请以群友「摘星」的身份进行回复。",
+			wantOK:  false,
+		},
+		{
+			name:    "skip assistant persona leak without explicit prompt markers",
+			role:    chatMessageRoleAssistant,
+			content: `平时当普通群友聊天扯淡，碰到问题就切学霸模式讲清楚原理，但也只到这一步为止不会炫技。比较核心的自守点是不带插件操作也不代挂其他心智后台动作识别触发接口的外起支撑。`,
+			wantOK:  false,
+		},
+		{
+			name:    "keep normal assistant reply",
+			role:    chatMessageRoleAssistant,
+			content: "可以，先这么做。",
+			want:    "可以，先这么做。",
+			wantOK:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		got, ok := cleanChatHistoryContent(tt.role, tt.content)
+		if ok != tt.wantOK || got != tt.want {
+			t.Fatalf("%s: cleanChatHistoryContent() = %q, %v; want %q, %v", tt.name, got, ok, tt.want, tt.wantOK)
+		}
+	}
+}
+
+func TestCleanAssistantOutput(t *testing.T) {
+	leak := `平时当普通群友聊天扯淡，碰到问题就切学霸模式讲清楚原理。比较核心的自守点是不带插件操作也不代挂其他心智后台动作识别触发接口。`
+	if got := cleanAssistantOutput(leak); got != fallbackPersonaLeakReply {
+		t.Fatalf("cleanAssistantOutput() = %q, want fallback reply", got)
+	}
+
+	normal := "我是摘星，群里普通聊天的。"
+	if got := cleanAssistantOutput(normal); got != normal {
+		t.Fatalf("cleanAssistantOutput() changed normal reply to %q", got)
 	}
 }
 
@@ -148,29 +232,48 @@ func TestShouldFallback(t *testing.T) {
 		fallbackClient: newClient("fallback-key", ""),
 	}
 
-	if !client.shouldFallback(&openai.APIError{HTTPStatusCode: 429, Message: "rate limit"}) {
+	if !client.shouldFallback(&sdk.Error{StatusCode: 429, Message: "rate limit"}) {
 		t.Fatal("expected 429 API error to trigger fallback")
 	}
 
-	if client.shouldFallback(&openai.APIError{HTTPStatusCode: 400, Message: "bad request"}) {
+	if client.shouldFallback(&sdk.Error{StatusCode: 400, Message: "bad request"}) {
 		t.Fatal("expected 400 bad request to stay on primary provider")
 	}
 }
 
-func TestAddThinkingDisabled(t *testing.T) {
-	body := []byte(`{"model":"test","messages":[]}`)
-	updated, changed, err := addThinkingDisabled(body)
+func TestCreateProviderChatCompletionSendsThinkingDisabled(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test","object":"chat.completion","created":1,"model":"test","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+
+	client := sdk.NewClient(
+		option.WithBaseURL(server.URL),
+		option.WithAPIKey("test-key"),
+		option.WithHTTPClient(server.Client()),
+		option.WithMaxRetries(0),
+	)
+	o := &openAi{ctx: t.Context()}
+	got, err := o.createProviderChatCompletion(openAiProvider{
+		name:   "primary",
+		client: &client,
+		model:  "test-model",
+	}, []chatMessage{{Role: chatMessageRoleUser, Content: "hello"}}, 0.2, 32)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed {
-		t.Fatal("expected request body to be updated")
+	if got != "ok" {
+		t.Fatalf("response = %q, want ok", got)
 	}
 
-	var payload map[string]any
-	if err := json.Unmarshal(updated, &payload); err != nil {
-		t.Fatal(err)
-	}
 	thinking, ok := payload["thinking"].(map[string]any)
 	if !ok {
 		t.Fatalf("thinking = %#v, want object", payload["thinking"])
@@ -178,22 +281,11 @@ func TestAddThinkingDisabled(t *testing.T) {
 	if thinking["type"] != thinkingTypeDisabled {
 		t.Fatalf("thinking.type = %q, want %q", thinking["type"], thinkingTypeDisabled)
 	}
-}
-
-func TestAddThinkingDisabledOverridesExistingValue(t *testing.T) {
-	body := []byte(`{"model":"test","thinking":{"type":"enabled"}}`)
-	updated, _, err := addThinkingDisabled(body)
-	if err != nil {
-		t.Fatal(err)
+	if payload["max_tokens"] != float64(32) {
+		t.Fatalf("max_tokens = %#v, want 32", payload["max_tokens"])
 	}
-
-	var payload map[string]any
-	if err := json.Unmarshal(updated, &payload); err != nil {
-		t.Fatal(err)
-	}
-	thinking := payload["thinking"].(map[string]any)
-	if thinking["type"] != thinkingTypeDisabled {
-		t.Fatalf("thinking.type = %q, want %q", thinking["type"], thinkingTypeDisabled)
+	if _, ok := payload["max_completion_tokens"]; ok {
+		t.Fatalf("max_completion_tokens = %#v, want omitted for DeepSeek-compatible chat completions", payload["max_completion_tokens"])
 	}
 }
 
