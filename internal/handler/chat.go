@@ -263,7 +263,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 			// Custom personas are temporarily disabled; clear a stale force flag if a command set one.
 			_ = g.groupPersona.ConsumeForceNext(ctx.EffectiveChat.Id)
 		}
-		if !forcePersonaPrompt && time.Now().UnixMicro()%50 != 0 { // 有1/50的概率走完整人设分支，其余只包含历史对话
+		if !forcePersonaPrompt && time.Now().UnixMicro()%2 != 0 { // 有1/2的概率走完整人设分支，其余只包含历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 新消息: %s`, hmsg, input)
 		} else {
@@ -278,7 +278,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
    - 禁止出现括号内容，如 ( ) 、（ ）。
    - 禁止使用 * * 、—— 等表示动作的方式。
    - 不要写自己"停顿""思考""斟酌"等行为。
-2. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话。
+2. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话,最好每个句子不超过50个字。
 3. 不要过长，也不要过度解释，让回复自然、像真人。
 
 请仅输出最终要发送的对话内容。`,
