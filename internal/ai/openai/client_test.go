@@ -289,6 +289,40 @@ func TestCreateProviderChatCompletionSendsThinkingDisabled(t *testing.T) {
 	}
 }
 
+func TestCreateChatCompletionUsesLowTemperature(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test","object":"chat.completion","created":1,"model":"test","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+
+	client := sdk.NewClient(
+		option.WithBaseURL(server.URL),
+		option.WithAPIKey("test-key"),
+		option.WithHTTPClient(server.Client()),
+		option.WithMaxRetries(0),
+	)
+	o := &openAi{
+		ctx:    t.Context(),
+		client: &client,
+		cfg:    config.Ai{OpenAiModel: "test-model"},
+	}
+	got, err := o.createChatCompletion([]chatMessage{{Role: chatMessageRoleUser, Content: "hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "ok" {
+		t.Fatalf("response = %q, want ok", got)
+	}
+	if payload["temperature"] != float64(0.2) {
+		t.Fatalf("temperature = %#v, want 0.2", payload["temperature"])
+	}
+}
+
 func TestParseEmotionSearchParams(t *testing.T) {
 	content := "```json\n" +
 		"{\n" +

@@ -20,15 +20,16 @@ import (
 )
 
 const (
-	saveTime                 = 100 * time.Hour
-	historyLoadMaxParallel   = 8
-	chatCompletionMaxToken   = 1000
-	emotionSearchMaxToken    = 300
-	thinkingTypeDisabled     = "disabled"
-	fallbackPersonaLeakReply = "我是摘星，群里普通聊天的。"
-	chatMessageRoleUser      = "user"
-	chatMessageRoleAssistant = "assistant"
-	chatMessageRoleSystem    = "system"
+	saveTime                  = 10 * time.Hour
+	historyLoadMaxParallel    = 8
+	chatCompletionMaxToken    = 1000
+	chatCompletionTemperature = 0.2
+	emotionSearchMaxToken     = 300
+	thinkingTypeDisabled      = "disabled"
+	fallbackPersonaLeakReply  = "我是摘星，群里普通聊天的。"
+	chatMessageRoleUser       = "user"
+	chatMessageRoleAssistant  = "assistant"
+	chatMessageRoleSystem     = "system"
 )
 
 var _ ai.AiInterface = (*openAi)(nil)
@@ -378,14 +379,14 @@ func (o *openAi) currentProvider() openAiProvider {
 
 func (o *openAi) createChatCompletion(messages []chatMessage) (string, error) {
 	provider := o.currentProvider()
-	resp, err := o.createProviderChatCompletion(provider, messages, 1.3, chatCompletionMaxToken)
+	resp, err := o.createProviderChatCompletion(provider, messages, chatCompletionTemperature, chatCompletionMaxToken)
 	if err == nil || provider.name == "fallback" || !o.shouldFallback(err) {
 		return resp, err
 	}
 
 	o.activateFallback(err)
 	provider = o.currentProvider()
-	return o.createProviderChatCompletion(provider, messages, 1.3, chatCompletionMaxToken)
+	return o.createProviderChatCompletion(provider, messages, chatCompletionTemperature, chatCompletionMaxToken)
 }
 
 func (o *openAi) createProviderChatCompletion(provider openAiProvider, messages []chatMessage, temperature float64, maxTokens int64) (string, error) {
