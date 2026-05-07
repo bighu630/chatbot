@@ -91,9 +91,9 @@ func TestNewEmotionReplyClientDisabled(t *testing.T) {
 	}
 }
 
-func TestEmotionReplyFeatureDisabled(t *testing.T) {
-	if emotionReplyFeatureEnabled() {
-		t.Fatal("expected emotion reply feature to be disabled")
+func TestEmotionReplyFeatureEnabled(t *testing.T) {
+	if !emotionReplyFeatureEnabled() {
+		t.Fatal("expected emotion reply feature to be enabled")
 	}
 }
 

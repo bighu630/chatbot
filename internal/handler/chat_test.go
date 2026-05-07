@@ -237,7 +237,7 @@ func TestShouldSkipBotMessage(t *testing.T) {
 	}
 }
 
-func TestGroupPersonaForPromptUsesDefaultPersona(t *testing.T) {
+func TestGroupPersonaForPromptUsesCustomPersona(t *testing.T) {
 	custom := "这是数据库里的自定义人设"
 	manager := NewGroupPersonaManager(&fakeGroupConfigRepo{
 		records: map[int64]*model.GroupConfig{
@@ -246,7 +246,7 @@ func TestGroupPersonaForPromptUsesDefaultPersona(t *testing.T) {
 	})
 	handler := &geminiHandler{groupPersona: manager}
 
-	if got := handler.groupPersonaForPrompt(-1001); got != defaultGroupPersona {
-		t.Fatalf("groupPersonaForPrompt() = %q, want default persona", got)
+	if got := handler.groupPersonaForPrompt(-1001); got != custom {
+		t.Fatalf("groupPersonaForPrompt() = %q, want custom persona", got)
 	}
 }

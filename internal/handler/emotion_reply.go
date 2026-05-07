@@ -21,7 +21,7 @@ import (
 
 const emotionReplyTriggerRate = 0.8
 const emotionReplyDownloadLimit = 20 * 1024 * 1024
-const emotionReplyEnabled = false
+const emotionReplyEnabled = true
 
 type emotionReplyClient struct {
 	cfg        config.EmotionConfig

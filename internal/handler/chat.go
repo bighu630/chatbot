@@ -260,8 +260,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		persona := g.groupPersonaForPrompt(ctx.EffectiveChat.Id)
 		forcePersonaPrompt := false
 		if g.groupPersona != nil {
-			// Custom personas are temporarily disabled; clear a stale force flag if a command set one.
-			_ = g.groupPersona.ConsumeForceNext(ctx.EffectiveChat.Id)
+			forcePersonaPrompt = g.groupPersona.ConsumeForceNext(ctx.EffectiveChat.Id)
 		}
 		if !forcePersonaPrompt && time.Now().UnixMicro()%2 != 0 { // 有1/2的概率走完整人设分支，其余只包含历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
@@ -327,6 +326,9 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 }
 
 func (g *geminiHandler) groupPersonaForPrompt(chatID int64) string {
+	if g != nil && g.groupPersona != nil {
+		return g.groupPersona.Persona(chatID)
+	}
 	return defaultGroupPersona
 }
 
