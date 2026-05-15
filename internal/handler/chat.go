@@ -28,10 +28,11 @@ var _ ext.Handler = (*geminiHandler)(nil)
 var gai *geminiHandler
 
 type geminiHandler struct {
-	takeList     map[string]*takeInfo
-	chatCache    *chatCache
-	ai           ai.AiInterface
-	imgHandlerAi ai.AiInterface
+	takeList      map[string]*takeInfo
+	chatCache     *chatCache
+	ai            ai.AiInterface
+	imgHandlerAi  ai.AiInterface
+	emotionClient *emotionReplyClient
 }
 
 type takeInfo struct {
@@ -58,14 +59,16 @@ func TriggerWithPercentage(percentage float64) bool {
 	return randomValue < percentage
 }
 
-func NewGeminiHandler(cfg config.Ai) ext.Handler {
+func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handler {
 	var aiProvider ai.AiInterface
 	aiProvider = openai.NewOpenAi(cfg)
 	cache := NewChatCache()
 	gai = &geminiHandler{
-		takeList:  make(map[string]*takeInfo),
-		chatCache: cache,
-		ai:        aiProvider}
+		takeList:      make(map[string]*takeInfo),
+		chatCache:     cache,
+		ai:            aiProvider,
+		emotionClient: newEmotionReplyClient(emotionCfg),
+	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
 	}
@@ -137,6 +140,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		}
 	}
 	input := strings.TrimPrefix(ctx.EffectiveMessage.Text, "/chat ")
+	userMessage := input
 	if input == "/help" {
 		_, err := b.SendMessage(ctx.EffectiveChat.Id, Help, nil)
 		return err
@@ -208,6 +212,7 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		sendRespond(m, b, ctx)
 		time.Sleep(1 * time.Second)
 	}
+	g.maybeSendEmotionReply(b, ctx, userMessage, resp)
 	return nil
 
 }

@@ -43,7 +43,7 @@ func Start(cfg *config.Config) error {
 		tgWebHook.RegisterHandler(ymbHandler)
 	}
 	if cfg.Ai.Enable {
-		gaiHandler = handler.NewGeminiHandler(cfg.Ai)
+		gaiHandler = handler.NewGeminiHandler(cfg.Ai, cfg.Emotion)
 		tgWebHook.RegisterHandler(gaiHandler)
 	}
 	if cfg.Storage.Enable {

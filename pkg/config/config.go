@@ -12,6 +12,7 @@ type Config struct {
 	Log           Log           `toml:"log"`
 	Ytdlp         Ytdlp         `toml:"ytdlp"`
 	Ai            Ai            `toml:"ai"`
+	Emotion       EmotionConfig `toml:"emotion"`
 	Admin         AdminConfig   `toml:"admin"`
 	Storage       StorageConfig `toml:"storage"`
 	TencentConfig TencentConfig `toml:"tencent"`
@@ -44,6 +45,12 @@ type Log struct {
 type Ytdlp struct {
 	Enable bool   `json:"enable" tomel:"enable"`
 	Path   string `json:"path" toml:"path"`
+}
+
+type EmotionConfig struct {
+	Enable     bool   `json:"enable" toml:"enable"`
+	APIBaseURL string `json:"apiBaseUrl" toml:"apiBaseUrl"`
+	APIKey     string `json:"apiKey" toml:"apiKey"`
 }
 
 type Ai struct {

@@ -9,3 +9,21 @@ type AiInterface interface {
 	AddChatMsg(chatId string, userSay string, botSay string) error
 	Translate(text string) (string, error)
 }
+
+type EmotionScores struct {
+	Joy      float64 `json:"joy"`
+	Anger    float64 `json:"anger"`
+	Sadness  float64 `json:"sadness"`
+	Fear     float64 `json:"fear"`
+	Disgust  float64 `json:"disgust"`
+	Surprise float64 `json:"surprise"`
+}
+
+type EmotionSearchParams struct {
+	Scores      EmotionScores `json:"scores"`
+	TopK        int           `json:"top_k"`
+	MaxDistance float64       `json:"max_distance,omitempty"`
+	Source      string        `json:"source,omitempty"`
+	Tags        []string      `json:"tags,omitempty"`
+	IsNSFW      *bool         `json:"is_nsfw,omitempty"`
+}
