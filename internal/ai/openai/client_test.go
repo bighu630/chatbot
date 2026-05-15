@@ -2,8 +2,14 @@ package openai
 
 import (
 	"chatbot/pkg/config"
+	"context"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
+
+	openai "github.com/sashabaranov/go-openai"
 )
 
 var openaiInstance *openAi
@@ -80,4 +86,48 @@ func TestOpenAi_Translate(t *testing.T) {
 	if err == nil {
 		t.Fatal("err is nil")
 	}
+}
+
+func TestOpenAi_Chat_InvalidJSONSuccessResponse(t *testing.T) {
+	httpClient := &http.Client{Transport: testRoundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"text/plain; charset=utf-8"}},
+			Body:       io.NopCloser(strings.NewReader("data: upstream returned non-json")),
+		}, nil
+	})}
+
+	cfg := config.Ai{
+		OpenAiKey:     "test-key",
+		OpenAiModel:   "test-model",
+		OpenAiBaseUrl: "https://example.test",
+	}
+
+	instance := &openAi{
+		http:   httpClient,
+		cfg:    cfg,
+		ctx:    context.Background(),
+		chats:  map[string][]openai.ChatCompletionMessage{},
+	}
+
+	_, err := instance.Chat("chat-1", "hello")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "invalid chat completion response") {
+		t.Fatalf("error = %q, want invalid chat completion response", err.Error())
+	}
+	if !strings.Contains(err.Error(), "data: upstream returned non-json") {
+		t.Fatalf("error = %q, want upstream body preview", err.Error())
+	}
+}
+
+type testRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f testRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -39,15 +38,18 @@ func TestParseEmotionScores(t *testing.T) {
 
 func TestEmotionParamBuilderBuildUsesChatCompletions(t *testing.T) {
 	var payload map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	httpClient := &http.Client{Transport: testRoundTripper(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/chat/completions" {
 			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{
 			"id":"chatcmpl-test",
 			"object":"chat.completion",
 			"created":1,
@@ -55,15 +57,16 @@ func TestEmotionParamBuilderBuildUsesChatCompletions(t *testing.T) {
 			"choices":[
 				{"index":0,"message":{"role":"assistant","content":"{\"joy\":0.1,\"anger\":0.2,\"sadness\":0.3,\"fear\":0.4,\"disgust\":0.5,\"surprise\":0.6}"},"finish_reason":"stop"}
 			]
-		}`))
-	}))
-	defer server.Close()
+		}`)),
+		}, nil
+	})}
 
 	builder := newEmotionParamBuilder(config.Ai{
 		OpenAiKey:     "test-key",
 		OpenAiModel:   "test-model",
-		OpenAiBaseUrl: server.URL,
+		OpenAiBaseUrl: "https://example.test",
 	})
+	builder.httpClient = httpClient
 	params, err := builder.Build("别吵了", "都冷静点。")
 	if err != nil {
 		t.Fatal(err)

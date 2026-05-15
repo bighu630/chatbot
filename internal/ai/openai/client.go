@@ -2,6 +2,7 @@ package openai
 
 import (
 	"chatbot/internal/ai"
+	"chatbot/internal/ai/openaiutil"
 	"chatbot/internal/storage/model"
 	"chatbot/internal/storage/repo"
 	"chatbot/pkg/config"
@@ -22,6 +23,7 @@ var _ ai.AiInterface = (*openAi)(nil)
 type openAi struct {
 	db     repo.Chat
 	client *openai.Client
+	http   openai.HTTPDoer
 	cfg    config.Ai
 	ctx    context.Context
 	chats  map[string][]openai.ChatCompletionMessage
@@ -64,10 +66,14 @@ func NewOpenAi(cfg config.Ai) *openAi {
 
 	}
 
-	g := &openAi{db, client, cfg, ctx, css}
+	g := &openAi{db: db, client: client, http: openai_config.HTTPClient, cfg: cfg, ctx: ctx, chats: css}
 	go g.autoDeleteDB()
 	log.Info().Msg("openai init success")
 	return g
+}
+
+func (o *openAi) createChatCompletion(req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	return openaiutil.CreateChatCompletion(o.ctx, o.http, o.cfg, req)
 }
 
 func (o openAi) Name() string {
@@ -119,14 +125,20 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 		}
 	}
 
+	var lastErr error
 	for range 3 {
-		resp, err := o.client.CreateChatCompletion(o.ctx, openai.ChatCompletionRequest{
+		resp, err := o.createChatCompletion(openai.ChatCompletionRequest{
 			Model:       o.cfg.OpenAiModel,
 			Temperature: 1.3, // 对话适用1.3
 			Messages:    chatMessages,
 		})
 		if err != nil {
-			log.Error().Err(err).Msg("failed to send message to openai")
+			lastErr = err
+			log.Error().
+				Err(err).
+				Str("model", o.cfg.OpenAiModel).
+				Str("base_url", o.cfg.OpenAiBaseUrl).
+				Msg("failed to send message to openai")
 		} else {
 			result := resp.Choices[0].Message.Content
 			chatMessages = append(chatMessages, openai.ChatCompletionMessage{
@@ -134,9 +146,11 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 				Content: result,
 			})
 			o.chats[chatId] = chatMessages
-			if err := o.db.Add(model.NewChat(chatId, false, result)); err != nil {
-				log.Error().Err(err).Msg("failed to add chat record")
-				return "", err
+			if o.db != nil {
+				if err := o.db.Add(model.NewChat(chatId, false, result)); err != nil {
+					log.Error().Err(err).Msg("failed to add chat record")
+					return "", err
+				}
 			}
 			return result, nil
 		}
@@ -145,8 +159,13 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 		Role:    openai.ChatMessageRoleAssistant,
 		Content: "I got something wrong. I'll try again.",
 	})
-	if err := o.db.Add(model.NewChat(chatId, false, "I got something wrong. I'll try again.")); err != nil {
-		log.Error().Err(err).Msg("failed to add chat record")
+	if o.db != nil {
+		if err := o.db.Add(model.NewChat(chatId, false, "I got something wrong. I'll try again.")); err != nil {
+			log.Error().Err(err).Msg("failed to add chat record")
+		}
+	}
+	if lastErr != nil {
+		return "", lastErr
 	}
 	return "", errors.New("failed to send message to openai")
 }

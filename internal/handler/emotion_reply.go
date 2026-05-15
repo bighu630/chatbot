@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"chatbot/internal/ai"
+	"chatbot/internal/ai/openaiutil"
 	"chatbot/pkg/config"
 	"context"
 	"encoding/json"
@@ -38,9 +39,9 @@ type emotionReplyClient struct {
 }
 
 type emotionParamBuilder struct {
-	ctx    context.Context
-	client *openai.Client
-	model  string
+	ctx        context.Context
+	httpClient openai.HTTPDoer
+	cfg        config.Ai
 }
 
 type emotionSearchAPIResponse struct {
@@ -84,9 +85,9 @@ func newEmotionParamBuilder(cfg config.Ai) *emotionParamBuilder {
 	openaiConfig := openai.DefaultConfig(cfg.OpenAiKey)
 	openaiConfig.BaseURL = cfg.OpenAiBaseUrl
 	return &emotionParamBuilder{
-		ctx:    context.Background(),
-		client: openai.NewClientWithConfig(openaiConfig),
-		model:  cfg.OpenAiModel,
+		ctx:        context.Background(),
+		httpClient: openaiConfig.HTTPClient,
+		cfg:        cfg,
 	}
 }
 
@@ -174,11 +175,11 @@ func buildEmotionPrompt(userMessage string, botReply string) string {
 }
 
 func (b *emotionParamBuilder) Build(userMessage string, botReply string) (ai.EmotionSearchParams, error) {
-	if b == nil || b.client == nil || strings.TrimSpace(b.model) == "" {
+	if b == nil || b.httpClient == nil || strings.TrimSpace(b.cfg.OpenAiModel) == "" {
 		return ai.EmotionSearchParams{}, errors.New("emotion prompt builder is unavailable")
 	}
-	resp, err := b.client.CreateChatCompletion(b.ctx, openai.ChatCompletionRequest{
-		Model:       b.model,
+	resp, err := openaiutil.CreateChatCompletion(b.ctx, b.httpClient, b.cfg, openai.ChatCompletionRequest{
+		Model:       b.cfg.OpenAiModel,
 		Temperature: 0.2,
 		MaxTokens:   200,
 		Messages: []openai.ChatCompletionMessage{
