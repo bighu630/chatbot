@@ -43,8 +43,12 @@ func Start(cfg *config.Config) error {
 		tgWebHook.RegisterHandler(ymbHandler)
 	}
 	if cfg.Ai.Enable {
-		gaiHandler = handler.NewGeminiHandler(cfg.Ai, cfg.Emotion)
+		groupReplyTrigger := handler.NewGroupReplyTriggerConfig()
+		gaiHandler = handler.NewGeminiHandler(cfg.Ai, cfg.Emotion, groupReplyTrigger)
 		tgWebHook.RegisterHandler(gaiHandler)
+		activityHandler := handler.NewGroupReplyActivityHandler(groupReplyTrigger, cfg.Admin.ChatIDs)
+		tgWebHook.RegisterHandlerWithCmd(activityHandler, "activity")
+		tgWebHook.RegisterHandlerWithCmd(activityHandler, "setactivity")
 	}
 	if cfg.Storage.Enable {
 		quotationsHandler = quotation.NewQuotationsHandler()

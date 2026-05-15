@@ -34,6 +34,7 @@ type geminiHandler struct {
 	imgHandlerAi         ai.AiInterface
 	emotionClient        *emotionReplyClient
 	emotionPromptBuilder *emotionParamBuilder
+	groupReplyTrigger    *GroupReplyTriggerConfig
 }
 
 type takeInfo struct {
@@ -60,16 +61,20 @@ func TriggerWithPercentage(percentage float64) bool {
 	return randomValue < percentage
 }
 
-func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handler {
+func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReplyTrigger *GroupReplyTriggerConfig) ext.Handler {
 	var aiProvider ai.AiInterface
 	aiProvider = openai.NewOpenAi(cfg)
 	cache := NewChatCache()
+	if groupReplyTrigger == nil {
+		groupReplyTrigger = NewGroupReplyTriggerConfig()
+	}
 	gai = &geminiHandler{
 		takeList:             make(map[string]*takeInfo),
 		chatCache:            cache,
 		ai:                   aiProvider,
 		emotionClient:        newEmotionReplyClient(emotionCfg),
 		emotionPromptBuilder: newEmotionParamBuilder(cfg),
+		groupReplyTrigger:    groupReplyTrigger,
 	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
@@ -100,7 +105,11 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handle
 		if bc {
 			return bc
 		} else {
-			if TriggerWithPercentage(0.003) && ctx.EffectiveMessage.ReplyToMessage == nil {
+			rate := randomGroupReplyBaseRate
+			if gai.groupReplyTrigger != nil {
+				rate = gai.groupReplyTrigger.rate(ctx.EffectiveChat.Id)
+			}
+			if TriggerWithPercentage(rate) && ctx.EffectiveMessage.ReplyToMessage == nil {
 				return true
 			}
 			if ctx.EffectiveChat.Type == "group" || ctx.EffectiveChat.Type == "supergroup" {
