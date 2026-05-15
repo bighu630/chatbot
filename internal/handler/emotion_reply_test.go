@@ -4,9 +4,9 @@ import (
 	"chatbot/internal/ai"
 	"chatbot/pkg/config"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -37,27 +37,54 @@ func TestParseEmotionScores(t *testing.T) {
 	}
 }
 
-func TestBuildEmotionSearchParamsUsesHandleText(t *testing.T) {
-	fake := &fakeEmotionAI{
-		handleTextResp: `{"joy":0.1,"anger":0.2,"sadness":0.3,"fear":0.4,"disgust":0.5,"surprise":0.6}`,
-	}
-	handler := &geminiHandler{ai: fake}
+func TestEmotionParamBuilderBuildUsesChatCompletions(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl-test",
+			"object":"chat.completion",
+			"created":1,
+			"model":"test-model",
+			"choices":[
+				{"index":0,"message":{"role":"assistant","content":"{\"joy\":0.1,\"anger\":0.2,\"sadness\":0.3,\"fear\":0.4,\"disgust\":0.5,\"surprise\":0.6}"},"finish_reason":"stop"}
+			]
+		}`))
+	}))
+	defer server.Close()
 
-	params, err := handler.buildEmotionSearchParams("别吵了", "都冷静点。")
+	builder := newEmotionParamBuilder(config.Ai{
+		OpenAiKey:     "test-key",
+		OpenAiModel:   "test-model",
+		OpenAiBaseUrl: server.URL,
+	})
+	params, err := builder.Build("别吵了", "都冷静点。")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.handleTextCalled != 1 {
-		t.Fatalf("HandleText called %d times, want 1", fake.handleTextCalled)
+	if payload["model"] != "test-model" {
+		t.Fatalf("model = %#v, want test-model", payload["model"])
 	}
-	if fake.chatCalled != 0 {
-		t.Fatalf("Chat called %d times, want 0", fake.chatCalled)
+	messages, ok := payload["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("messages = %#v, want single prompt message", payload["messages"])
 	}
-	if !strings.Contains(fake.lastHandleTextPrompt, "群友说：别吵了") {
-		t.Fatalf("prompt = %q, want tagged user message", fake.lastHandleTextPrompt)
+	message, ok := messages[0].(map[string]any)
+	if !ok {
+		t.Fatalf("message = %#v, want object", messages[0])
 	}
-	if !strings.Contains(fake.lastHandleTextPrompt, "你说：都冷静点。") {
-		t.Fatalf("prompt = %q, want tagged bot reply", fake.lastHandleTextPrompt)
+	content, _ := message["content"].(string)
+	if !strings.Contains(content, "群友说：别吵了") {
+		t.Fatalf("prompt = %q, want tagged user message", content)
+	}
+	if !strings.Contains(content, "你说：都冷静点。") {
+		t.Fatalf("prompt = %q, want tagged bot reply", content)
 	}
 	if params.TopK != 5 || params.MaxDistance != 0.75 || params.Source != "telegram-sticker" {
 		t.Fatalf("params = %#v, want fixed search defaults", params)
@@ -165,40 +192,4 @@ func TestDeriveEmotionImageName(t *testing.T) {
 	if got := deriveEmotionImageName("https://example.com"); got != "emotion-image" {
 		t.Fatalf("name = %q, want emotion-image", got)
 	}
-}
-
-type fakeEmotionAI struct {
-	handleTextResp       string
-	handleTextCalled     int
-	chatCalled           int
-	lastHandleTextPrompt string
-}
-
-func (f *fakeEmotionAI) Name() string { return "fake" }
-
-func (f *fakeEmotionAI) HandleText(msg string) (string, error) {
-	f.handleTextCalled++
-	f.lastHandleTextPrompt = msg
-	return f.handleTextResp, nil
-}
-
-func (f *fakeEmotionAI) HandleTextWithImg(msg string, imgType string, imgData []byte) (string, error) {
-	return "", errors.New("unexpected HandleTextWithImg call")
-}
-
-func (f *fakeEmotionAI) Chat(chatId string, msg string) (string, error) {
-	f.chatCalled++
-	return "", errors.New("unexpected Chat call")
-}
-
-func (f *fakeEmotionAI) ChatWithImg(chatId string, msg string, imgType string, imgData []byte) (string, error) {
-	return "", errors.New("unexpected ChatWithImg call")
-}
-
-func (f *fakeEmotionAI) AddChatMsg(chatId string, userSay string, botSay string) error {
-	return nil
-}
-
-func (f *fakeEmotionAI) Translate(text string) (string, error) {
-	return "", errors.New("unexpected Translate call")
 }

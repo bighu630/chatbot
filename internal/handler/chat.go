@@ -28,11 +28,12 @@ var _ ext.Handler = (*geminiHandler)(nil)
 var gai *geminiHandler
 
 type geminiHandler struct {
-	takeList      map[string]*takeInfo
-	chatCache     *chatCache
-	ai            ai.AiInterface
-	imgHandlerAi  ai.AiInterface
-	emotionClient *emotionReplyClient
+	takeList             map[string]*takeInfo
+	chatCache            *chatCache
+	ai                   ai.AiInterface
+	imgHandlerAi         ai.AiInterface
+	emotionClient        *emotionReplyClient
+	emotionPromptBuilder *emotionParamBuilder
 }
 
 type takeInfo struct {
@@ -64,10 +65,11 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig) ext.Handle
 	aiProvider = openai.NewOpenAi(cfg)
 	cache := NewChatCache()
 	gai = &geminiHandler{
-		takeList:      make(map[string]*takeInfo),
-		chatCache:     cache,
-		ai:            aiProvider,
-		emotionClient: newEmotionReplyClient(emotionCfg),
+		takeList:             make(map[string]*takeInfo),
+		chatCache:            cache,
+		ai:                   aiProvider,
+		emotionClient:        newEmotionReplyClient(emotionCfg),
+		emotionPromptBuilder: newEmotionParamBuilder(cfg),
 	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})

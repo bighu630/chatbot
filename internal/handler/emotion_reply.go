@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"chatbot/internal/ai"
 	"chatbot/pkg/config"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -18,6 +20,7 @@ import (
 	"github.com/PaulSonOfLars/gotgbot/v2"
 	"github.com/PaulSonOfLars/gotgbot/v2/ext"
 	"github.com/rs/zerolog/log"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -32,6 +35,12 @@ const (
 type emotionReplyClient struct {
 	cfg        config.EmotionConfig
 	httpClient *http.Client
+}
+
+type emotionParamBuilder struct {
+	ctx    context.Context
+	client *openai.Client
+	model  string
 }
 
 type emotionSearchAPIResponse struct {
@@ -65,6 +74,19 @@ func newEmotionReplyClient(cfg config.EmotionConfig) *emotionReplyClient {
 	return &emotionReplyClient{
 		cfg:        cfg,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+	}
+}
+
+func newEmotionParamBuilder(cfg config.Ai) *emotionParamBuilder {
+	if strings.TrimSpace(cfg.OpenAiKey) == "" || strings.TrimSpace(cfg.OpenAiModel) == "" {
+		return nil
+	}
+	openaiConfig := openai.DefaultConfig(cfg.OpenAiKey)
+	openaiConfig.BaseURL = cfg.OpenAiBaseUrl
+	return &emotionParamBuilder{
+		ctx:    context.Background(),
+		client: openai.NewClientWithConfig(openaiConfig),
+		model:  cfg.OpenAiModel,
 	}
 }
 
@@ -119,20 +141,14 @@ func (g *geminiHandler) maybeSendEmotionReply(b *gotgbot.Bot, ctx *ext.Context, 
 }
 
 func (g *geminiHandler) buildEmotionSearchParams(userMessage string, botReply string) (ai.EmotionSearchParams, error) {
-	content, err := g.ai.HandleText(buildEmotionPrompt(userMessage, botReply))
+	if g == nil || g.emotionPromptBuilder == nil {
+		return ai.EmotionSearchParams{}, errors.New("emotion prompt builder is unavailable")
+	}
+	content, err := g.emotionPromptBuilder.Build(userMessage, botReply)
 	if err != nil {
 		return ai.EmotionSearchParams{}, err
 	}
-	scores, err := parseEmotionScores(content)
-	if err != nil {
-		return ai.EmotionSearchParams{}, err
-	}
-	return ai.EmotionSearchParams{
-		Scores:      scores,
-		TopK:        emotionReplyTopK,
-		MaxDistance: emotionReplyMaxDistance,
-		Source:      emotionReplySourceTelegram,
-	}, nil
+	return content, nil
 }
 
 func buildEmotionPrompt(userMessage string, botReply string) string {
@@ -149,6 +165,39 @@ func buildEmotionPrompt(userMessage string, botReply string) string {
 群友说：%s
 你说：%s
 `, userMessage, botReply))
+}
+
+func (b *emotionParamBuilder) Build(userMessage string, botReply string) (ai.EmotionSearchParams, error) {
+	if b == nil || b.client == nil || strings.TrimSpace(b.model) == "" {
+		return ai.EmotionSearchParams{}, errors.New("emotion prompt builder is unavailable")
+	}
+	resp, err := b.client.CreateChatCompletion(b.ctx, openai.ChatCompletionRequest{
+		Model:       b.model,
+		Temperature: 0.2,
+		MaxTokens:   200,
+		Messages: []openai.ChatCompletionMessage{
+			{
+				Role:    openai.ChatMessageRoleUser,
+				Content: buildEmotionPrompt(userMessage, botReply),
+			},
+		},
+	})
+	if err != nil {
+		return ai.EmotionSearchParams{}, err
+	}
+	if len(resp.Choices) == 0 {
+		return ai.EmotionSearchParams{}, errors.New("emotion prompt returned no choices")
+	}
+	scores, err := parseEmotionScores(resp.Choices[0].Message.Content)
+	if err != nil {
+		return ai.EmotionSearchParams{}, err
+	}
+	return ai.EmotionSearchParams{
+		Scores:      scores,
+		TopK:        emotionReplyTopK,
+		MaxDistance: emotionReplyMaxDistance,
+		Source:      emotionReplySourceTelegram,
+	}, nil
 }
 
 func parseEmotionScores(content string) (ai.EmotionScores, error) {
