@@ -32,6 +32,16 @@ func (f *fakeGroupConfigRepo) SetReplyMultiplier(chatID int64, groupName string,
 }
 
 func (f *fakeGroupConfigRepo) SetEmotionNSFWMode(chatID int64, groupName string, mode int) error {
+	if f.records == nil {
+		f.records = map[int64]*model.GroupConfig{}
+	}
+	record := f.records[chatID]
+	if record == nil {
+		record = &model.GroupConfig{ChatID: chatID}
+		f.records[chatID] = record
+	}
+	record.GroupName = groupName
+	record.EmotionNSFWMode = &mode
 	return nil
 }
 

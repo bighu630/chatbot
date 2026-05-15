@@ -44,11 +44,15 @@ func Start(cfg *config.Config) error {
 	}
 	if cfg.Ai.Enable {
 		groupReplyTrigger := handler.NewGroupReplyTriggerConfig()
-		gaiHandler = handler.NewGeminiHandler(cfg.Ai, cfg.Emotion, groupReplyTrigger)
+		groupEmotionNSFW := handler.NewGroupEmotionNSFWConfig()
+		gaiHandler = handler.NewGeminiHandler(cfg.Ai, cfg.Emotion, groupReplyTrigger, groupEmotionNSFW)
 		tgWebHook.RegisterHandler(gaiHandler)
 		activityHandler := handler.NewGroupReplyActivityHandler(groupReplyTrigger, cfg.Admin.ChatIDs)
 		tgWebHook.RegisterHandlerWithCmd(activityHandler, "activity")
 		tgWebHook.RegisterHandlerWithCmd(activityHandler, "setactivity")
+		nsfwHandler := handler.NewGroupEmotionNSFWHandler(groupEmotionNSFW, cfg.Admin.ChatIDs)
+		tgWebHook.RegisterHandlerWithCmd(nsfwHandler, "nsfw")
+		tgWebHook.RegisterHandlerWithCmd(nsfwHandler, "setnsfw")
 	}
 	if cfg.Storage.Enable {
 		quotationsHandler = quotation.NewQuotationsHandler()

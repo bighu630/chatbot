@@ -106,6 +106,12 @@ func (g *geminiHandler) maybeSendEmotionReply(b *gotgbot.Bot, ctx *ext.Context, 
 		log.Warn().Err(err).Msg("failed to build emotion search params")
 		return
 	}
+	if g.groupEmotionNSFW != nil {
+		g.groupEmotionNSFW.apply(&params, ctx.EffectiveChat.Id)
+	} else {
+		value := false
+		params.IsNSFW = &value
+	}
 
 	match, err := g.emotionClient.searchImage(params)
 	if err != nil {

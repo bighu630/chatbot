@@ -35,6 +35,7 @@ type geminiHandler struct {
 	emotionClient        *emotionReplyClient
 	emotionPromptBuilder *emotionParamBuilder
 	groupReplyTrigger    *GroupReplyTriggerConfig
+	groupEmotionNSFW     *GroupEmotionNSFWConfig
 }
 
 type takeInfo struct {
@@ -61,12 +62,15 @@ func TriggerWithPercentage(percentage float64) bool {
 	return randomValue < percentage
 }
 
-func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReplyTrigger *GroupReplyTriggerConfig) ext.Handler {
+func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReplyTrigger *GroupReplyTriggerConfig, groupEmotionNSFW *GroupEmotionNSFWConfig) ext.Handler {
 	var aiProvider ai.AiInterface
 	aiProvider = openai.NewOpenAi(cfg)
 	cache := NewChatCache()
 	if groupReplyTrigger == nil {
 		groupReplyTrigger = NewGroupReplyTriggerConfig()
+	}
+	if groupEmotionNSFW == nil {
+		groupEmotionNSFW = NewGroupEmotionNSFWConfig()
 	}
 	gai = &geminiHandler{
 		takeList:             make(map[string]*takeInfo),
@@ -75,6 +79,7 @@ func NewGeminiHandler(cfg config.Ai, emotionCfg config.EmotionConfig, groupReply
 		emotionClient:        newEmotionReplyClient(emotionCfg),
 		emotionPromptBuilder: newEmotionParamBuilder(cfg),
 		groupReplyTrigger:    groupReplyTrigger,
+		groupEmotionNSFW:     groupEmotionNSFW,
 	}
 	if cfg.GeminiKey != "" {
 		gai.imgHandlerAi = gemini.NewGemini(config.Ai{GeminiKey: cfg.GeminiKey, GeminiModel: "gemini-2.5-flash"})
