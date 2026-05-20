@@ -219,7 +219,6 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 	resp, err := ai.Chat(sender, input)
 	if err != nil {
 		log.Error().Err(err).Msg("gemini chat error")
-		ctx.EffectiveMessage.Reply(b, "gemini chat error", nil)
 		return err
 	}
 	log.Debug().Msgf("%s say: %s", sender, input)
