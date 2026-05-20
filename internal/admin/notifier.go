@@ -4,11 +4,13 @@ import (
 	"chatbot/pkg/config"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/PaulSonOfLars/gotgbot/v2"
 )
 
 const feedbackSeparator = "========== FEEDBACK =========="
+const startupSeparator = "========== BOT STATUS =========="
 
 type FeedbackNotifier struct {
 	chatIDs []int64
@@ -51,6 +53,24 @@ func (n *FeedbackNotifier) NotifyFeedback(b *gotgbot.Bot, meta FeedbackMeta) err
 	return nil
 }
 
+func (n *FeedbackNotifier) NotifyStartup(b *gotgbot.Bot, startedAt time.Time) error {
+	if !n.Enabled() {
+		return fmt.Errorf("admin startup receiver is not configured")
+	}
+
+	message := buildStartupInfo(startedAt)
+	var errs []string
+	for _, chatID := range n.chatIDs {
+		if _, err := b.SendMessage(chatID, message, nil); err != nil {
+			errs = append(errs, fmt.Sprintf("chat %d startup message: %v", chatID, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("notify startup: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
 type FeedbackMeta struct {
 	UserID    int64
 	Username  string
@@ -74,6 +94,16 @@ func buildFeedbackInfo(meta FeedbackMeta) string {
 	lines = append(lines, "")
 	lines = append(lines, "反馈正文见下一条消息。")
 	lines = append(lines, feedbackSeparator)
+	return strings.Join(lines, "\n")
+}
+
+func buildStartupInfo(startedAt time.Time) string {
+	var lines []string
+	lines = append(lines, startupSeparator)
+	lines = append(lines, "[Startup]")
+	lines = append(lines, "机器人启动成功。")
+	lines = append(lines, fmt.Sprintf("started_at: %s", startedAt.Format("2006-01-02 15:04:05 -07:00")))
+	lines = append(lines, startupSeparator)
 	return strings.Join(lines, "\n")
 }
 

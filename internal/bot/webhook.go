@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"chatbot/internal/admin"
 	"chatbot/pkg/config"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +22,7 @@ type WebHookConnect struct {
 	webHookOpts *ext.WebhookOpts
 	token       string
 	domain      string
+	notifier    *admin.FeedbackNotifier
 }
 
 type webHookUpdate struct {
@@ -98,6 +100,10 @@ func (w *WebHookConnect) RegisterHandlerWithCmd(handler handlers.Response, cmd s
 	w.dispatcher.AddHandler(handlers.NewCommand(cmd, handler))
 }
 
+func (w *WebHookConnect) SetAdminNotifier(notifier *admin.FeedbackNotifier) {
+	w.notifier = notifier
+}
+
 func (w *WebHookConnect) Start() {
 	err := w.updater.StartWebhook(w.bot, "youtubeMusic/"+w.token, *w.webHookOpts)
 	if err != nil {
@@ -112,6 +118,11 @@ func (w *WebHookConnect) Start() {
 		log.Panic().Stack().Err(err).Msg("set bot webhook error")
 	}
 	log.Info().Msg("start webhook success")
+	if w.notifier != nil && w.notifier.Enabled() {
+		if err := w.notifier.NotifyStartup(w.bot, time.Now()); err != nil {
+			log.Warn().Err(err).Msg("failed to notify startup status to admin")
+		}
+	}
 
 	w.updater.Idle()
 }

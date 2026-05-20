@@ -30,6 +30,8 @@ func Start(cfg *config.Config) error {
 	if tgWebHook == nil {
 		return fmt.Errorf("bot: failed to create webhook connection")
 	}
+	adminNotifier := admin.NewFeedbackNotifier(cfg.Admin)
+	tgWebHook.SetAdminNotifier(adminNotifier)
 
 	if _, err := tencent.NewTencentClient(cfg.TencentConfig); err != nil {
 		log.Warn().Err(err).Msg("tencent client unavailable; voice transcription disabled")
@@ -77,7 +79,7 @@ func Start(cfg *config.Config) error {
 	tgVerify := handler.NewTgJoinVerificationHandler()
 	tgWebHook.RegisterHandler(tgVerify)
 	tgWebHook.RegisterHandler(tgVerify.NewCallbackHander())
-	tgWebHook.RegisterHandlerWithCmd(handler.NewFeedbackHandler(admin.NewFeedbackNotifier(cfg.Admin)), "feedback")
+	tgWebHook.RegisterHandlerWithCmd(handler.NewFeedbackHandler(adminNotifier), "feedback")
 
 	// blocks until webhook stops
 	tgWebHook.Start()
