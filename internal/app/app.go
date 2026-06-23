@@ -2,7 +2,12 @@ package app
 
 import (
 	"chatbot/internal/admin"
+	"chatbot/internal/ai/openai"
 	"chatbot/internal/bot"
+	botadapter "chatbot/internal/bot"
+	qqadapter "chatbot/internal/bot/qq"
+	"chatbot/internal/bot/qqonebot"
+	"chatbot/internal/chatcore"
 	"chatbot/internal/cloud/tencent"
 	handler "chatbot/internal/handler"
 	"chatbot/internal/handler/quotation"
@@ -16,8 +21,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Start wires all components together and runs the bot.
-// It returns an error if any required component fails to initialise.
 func Start(cfg *config.Config) error {
 	logger.Init(cfg.Log)
 
@@ -44,9 +47,14 @@ func Start(cfg *config.Config) error {
 		ymbHandler = handler.NewYoutubeHandler(cfg.Ytdlp.Path)
 		tgWebHook.RegisterHandler(ymbHandler)
 	}
+
+	var aiProvider = openai.NewOpenAi(cfg.Ai)
+	if !cfg.Ai.Enable && cfg.QQConfig.Enable {
+		return fmt.Errorf("qq requires ai to be enabled")
+	}
+	groupReplyTrigger := handler.NewGroupReplyTriggerConfig()
+	groupEmotionNSFW := handler.NewGroupEmotionNSFWConfig()
 	if cfg.Ai.Enable {
-		groupReplyTrigger := handler.NewGroupReplyTriggerConfig()
-		groupEmotionNSFW := handler.NewGroupEmotionNSFWConfig()
 		gaiHandler = handler.NewGeminiHandler(cfg.Ai, cfg.Emotion, groupReplyTrigger, groupEmotionNSFW)
 		tgWebHook.RegisterHandler(gaiHandler)
 		activityHandler := handler.NewGroupReplyActivityHandler(groupReplyTrigger, cfg.Admin.ChatIDs)
@@ -68,8 +76,6 @@ func Start(cfg *config.Config) error {
 	tgWebHook.RegisterHandler(quotationCtrl)
 	tgWebHook.RegisterHandler(quotationCtrl.NewCallbackHander())
 
-	// audioHandler := handler.NewAudioHandler()
-	// tgWebHook.RegisterHandler(audioHandler)
 	timer := scheduler.NewTimekeeper()
 	timer.RegisterCmd(tgWebHook.RegisterHandlerWithCmd)
 	timer.Start()
@@ -81,7 +87,19 @@ func Start(cfg *config.Config) error {
 	tgWebHook.RegisterHandler(tgVerify.NewCallbackHander())
 	tgWebHook.RegisterHandlerWithCmd(handler.NewFeedbackHandler(adminNotifier), "feedback")
 
-	// blocks until webhook stops
-	tgWebHook.Start()
+	var qqRunner botadapter.Runner
+	if cfg.QQConfig.Enable {
+		qqCore := &chatcore.Service{
+			AI:        aiProvider,
+			History:   handler.NewChatCache(),
+			BotName:   cfg.QQConfig.BotQQ,
+			GroupRate: chatcore.DefaultGroupChance,
+		}
+		qqClient := qqonebot.New(cfg.QQConfig.WSAddr)
+		qqRunner = qqadapter.New(qqCore, qqClient)
+	}
+
+	multi := botadapter.NewMultiRunner(tgWebHook, qqRunner)
+	multi.Start()
 	return nil
 }

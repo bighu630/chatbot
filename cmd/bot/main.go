@@ -4,7 +4,6 @@ import (
 	"chatbot/internal/app"
 	"chatbot/pkg/config"
 	"flag"
-	"fmt"
 	"log"
 )
 
@@ -17,7 +16,6 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	fmt.Println("hello telegram bot")
 	if err := app.Start(cfg); err != nil {
 		log.Fatalf("bot exited with error: %v", err)
 	}

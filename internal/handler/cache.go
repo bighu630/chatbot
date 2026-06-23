@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"chatbot/internal/chatcore"
 	"fmt"
 	"sync"
 
@@ -23,20 +24,20 @@ func NewChatCache() *chatCache {
 	}
 }
 
-func (c *chatCache) AddMsg(group string, user string, msg string) {
+func (c *chatCache) Add(threadKey, sender, text string) {
 	c.chatLock.Lock()
 	defer c.chatLock.Unlock()
-	log.Info().Str("group", group).Str("user", user).Str("msgs", msg).Msg("收到一个群消息")
-	c.chatCache[group] = append(c.chatCache[group], tgMsg{user, msg})
-	if len(c.chatCache[group]) > 20 {
-		c.chatCache[group] = c.chatCache[group][len(c.chatCache[group])-20:]
+	log.Info().Str("group", threadKey).Str("user", sender).Str("msgs", text).Msg("收到一个群消息")
+	c.chatCache[threadKey] = append(c.chatCache[threadKey], tgMsg{sender, text})
+	if len(c.chatCache[threadKey]) > 20 {
+		c.chatCache[threadKey] = c.chatCache[threadKey][len(c.chatCache[threadKey])-20:]
 	}
 }
 
-func (c *chatCache) GetChatMsgAndClean(group string) (string, int) {
+func (c *chatCache) Drain(threadKey string) (string, int) {
 	c.chatLock.Lock()
 	defer c.chatLock.Unlock()
-	msgs, ok := c.chatCache[group]
+	msgs, ok := c.chatCache[threadKey]
 	if !ok {
 		return "", 0
 	}
@@ -49,6 +50,16 @@ func (c *chatCache) GetChatMsgAndClean(group string) (string, int) {
 		resp = resp[:len(resp)-2]
 		log.Info().Str("chatCache", resp).Msg("读取群消息缓存")
 	}
-	c.chatCache[group] = []tgMsg{}
+	c.chatCache[threadKey] = []tgMsg{}
 	return resp, l
 }
+
+func (c *chatCache) AddMsg(group string, user string, msg string) {
+	c.Add(group, user, msg)
+}
+
+func (c *chatCache) GetChatMsgAndClean(group string) (string, int) {
+	return c.Drain(group)
+}
+
+var _ chatcore.History = (*chatCache)(nil)

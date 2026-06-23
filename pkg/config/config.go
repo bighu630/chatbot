@@ -6,9 +6,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config holds all application configuration loaded from config.toml.
 type Config struct {
 	WebHookConfig WebHookConfig `toml:"webHookConfig"`
+	QQConfig      QQConfig      `toml:"qq"`
 	Log           Log           `toml:"log"`
 	Ytdlp         Ytdlp         `toml:"ytdlp"`
 	Ai            Ai            `toml:"ai"`
@@ -23,12 +23,19 @@ type AdminConfig struct {
 }
 
 type WebHookConfig struct {
-	Token    string `json:"token" toml:"token"`     // default env: TOKEN
-	Address  string `json:"address" toml:"address"` // default env: WEBHOOK_ADDRESS
-	Domain   string `json:"domain" toml:"domain"`   // default env: WEBHOOK_DOMAIN
-	Secret   string `json:"secret" toml:"secret"`   // default env: WEBHOOK_SECRET
+	Token    string `json:"token" toml:"token"`
+	Address  string `json:"address" toml:"address"`
+	Domain   string `json:"domain" toml:"domain"`
+	Secret   string `json:"secret" toml:"secret"`
 	CertFile string `json:"certFile" toml:"certFile"`
 	KeyFile  string `json:"keyFile" toml:"keyFile"`
+}
+
+type QQConfig struct {
+	Enable bool   `toml:"enable"`
+	WSAddr string `toml:"wsAddr"`
+	BotQQ  string `toml:"botQQ"`
+	Token  string `toml:"token"`
 }
 
 type TencentConfig struct {
@@ -48,9 +55,9 @@ type Ytdlp struct {
 }
 
 type EmotionConfig struct {
-	Enable     bool   `json:"enable" toml:"enable"`
+	Enable    bool   `json:"enable" toml:"enable"`
 	APIBaseURL string `json:"apiBaseUrl" toml:"apiBaseUrl"`
-	APIKey     string `json:"apiKey" toml:"apiKey"`
+	APIKey    string `json:"apiKey" toml:"apiKey"`
 }
 
 type Ai struct {
@@ -62,28 +69,24 @@ type Ai struct {
 	OpenAiBaseUrl string `json:"openaiBaseUrl" toml:"openaiBaseUrl"`
 }
 
-// StorageConfig storage config
 type StorageConfig struct {
 	Enable   bool         `json:"enable" tomel:"enable"`
-	Provider string       `mapstructure:"provider" yaml:"provider" toml:"provider"` // 存储类型
-	SqlDB    *SqlDBConfig `mapstructure:"sqlite" yaml:"sqlite" toml:"sqlite"`       // sqlDB 配置
+	Provider string       `mapstructure:"provider" yaml:"provider" toml:"provider"`
+	SqlDB    *SqlDBConfig `mapstructure:"sqlite" yaml:"sqlite" toml:"sqlite"`
 }
 
-// SqlDBConfig SqlDB config
 type SqlDBConfig struct {
-	Path       string `mapstructure:"path" yaml:"path" toml:"path"` // 存储路径 (for sqlite)
-	Name       string `mapstructure:"name" yaml:"name" toml:"name"` // 数据库名称 (for sqlite)
+	Path       string `mapstructure:"path" yaml:"path" toml:"path"`
+	Name       string `mapstructure:"name" yaml:"name" toml:"name"`
 	Quotations string `mapstructure:"quotations" yaml:"quotations" toml:"quotations"`
-	// MySQL specific configurations
-	Host     string `mapstructure:"host" yaml:"host" toml:"host"`
-	Port     string `mapstructure:"port" yaml:"port" toml:"port"`
-	User     string `mapstructure:"user" yaml:"user" toml:"user"`
-	Password string `mapstructure:"password" yaml:"password" toml:"password"`
-	DBName   string `mapstructure:"dbname" yaml:"dbname" toml:"dbname"`
-	Charset  string `mapstructure:"charset" yaml:"charset" toml:"charset"`
+	Host       string `mapstructure:"host" yaml:"host" toml:"host"`
+	Port       string `mapstructure:"port" yaml:"port" toml:"port"`
+	User       string `mapstructure:"user" yaml:"user" toml:"user"`
+	Password   string `mapstructure:"password" yaml:"password" toml:"password"`
+	DBName     string `mapstructure:"dbname" yaml:"dbname" toml:"dbname"`
+	Charset    string `mapstructure:"charset" yaml:"charset" toml:"charset"`
 }
 
-// Load reads and parses the TOML config file at path.
 func Load(path string) (*Config, error) {
 	cfg := new(Config)
 	if _, err := toml.DecodeFile(path, cfg); err != nil {

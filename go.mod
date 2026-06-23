@@ -6,13 +6,15 @@ toolchain go1.24.5
 
 require (
 	github.com/BurntSushi/toml v1.4.0
-	github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.28
+	github.com/PaulSonOfLars/gotgbot/v2 v2.0.0-rc.35
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.34
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/rs/zerolog v1.33.0
 	github.com/sashabaranov/go-openai v1.40.0
+	github.com/sourcegraph/conc v0.3.0
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/asr v1.0.1038
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.0.1038
 	github.com/vitaliy-art/gorm-zerolog v1.2.0
@@ -32,12 +34,13 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	go.opencensus.io v0.24.0 // indirect
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/crypto v0.27.0 // indirect
 	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect

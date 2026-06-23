@@ -73,6 +73,10 @@ func NewQuotationsHandler() ext.Handler {
 	}
 	q := &quotationsHandler{qDB}
 	update.GetUpdater().Register(true, q.Name(), func(b *gotgbot.Bot, ctx *ext.Context) bool {
+		if ctx == nil || ctx.EffectiveChat == nil || ctx.EffectiveMessage == nil {
+			return false
+		}
+
 		if ctx.EffectiveChat.Type == "private" {
 			return false
 		}
@@ -175,7 +179,7 @@ chat:
 	}
 	// TODO: 这一块需要优化
 	// 如果引用的是bot的话，并且触发了关键词
-	if ctx.Message.ReplyToMessage.From.Id == b.Id {
+	if ctx.Message.ReplyToMessage != nil && ctx.Message.ReplyToMessage.From != nil && ctx.Message.ReplyToMessage.From.Id == b.Id {
 		relayToid = 0
 		if quotationsKey[ctx.EffectiveMessage.Text] == couple {
 			relayToid = ctx.Message.MessageId

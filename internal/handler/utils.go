@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -29,4 +30,14 @@ func formatAiResp(str string) string {
 	str = strings.ReplaceAll(str, "\n* ", "\n- ")
 	str = strings.ReplaceAll(str, "#-", "#")
 	return str
+}
+
+func TriggerWithPercentage(percentage float64) bool {
+	if percentage < 0.0 {
+		percentage = 0.0
+	}
+	if percentage > 1.0 {
+		percentage = 1.0
+	}
+	return rand.Float64() < percentage
 }

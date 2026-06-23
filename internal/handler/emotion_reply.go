@@ -168,6 +168,26 @@ func buildEmotionPrompt(userMessage string, botReply string) string {
 2. 字段只能包含 joy、anger、sadness、fear、disgust、surprise。
 3. 每个字段值必须是 0 到 1 之间的小数。
 4. 不要输出 markdown，不要解释。
+5. 参考配方: Shyness={joy:0.20,fear:0.40,disgust:0.30,surprise:0.10}
+Guilt={anger:0.20,sadness:0.35,fear:0.25}
+Jealousy={anger:0.35,sadness:0.25,fear:0.30,disgust:0.10}
+Envy={anger:0.30,sadness:0.35,fear:0.15,disgust:0.10}
+Shame={anger:0.15,sadness:0.30,fear:0.20,disgust:0.35}
+Pride={joy:0.55,anger:0.15,surprise:0.10}
+Contempt={joy:0.10,anger:0.40,disgust:0.50}
+Anxiety={sadness:0.25,fear:0.45,disgust:0.15,surprise:0.15}
+Loneliness={anger:0.20,sadness:0.40,fear:0.25,disgust:0.15}
+Excitement={joy:0.55,anger:0.10,fear:0.10,surprise:0.25}
+Awe={joy:0.20,fear:0.30,disgust:0.10,surprise:0.40}
+Hope={joy:0.35,fear:0.35,surprise:0.30}
+Love={joy:0.30,anger:0.15,fear:0.20,surprise:0.10}
+Nostalgia={joy:0.35,anger:0.15,sadness:0.35,fear:0.15}
+Sarcasm={joy:0.30,anger:0.25,disgust:0.30,surprise:0.15}
+Moral Anger={anger:0.50,fear:0.20,disgust:0.30}
+Homesickness={joy:0.20,sadness:0.40,fear:0.30,disgust:0.10}
+Confusion={sadness:0.20,fear:0.30,disgust:0.10,surprise:0.40}
+Flow={joy:0.40,anger:0.10,fear:0.20,surprise:0.30}
+6. 请务必仅反回json,不输出md格式
 
 群友说：%s
 你说：%s
@@ -181,7 +201,7 @@ func (b *emotionParamBuilder) Build(userMessage string, botReply string) (ai.Emo
 	resp, err := openaiutil.CreateChatCompletion(b.ctx, b.httpClient, b.cfg, openai.ChatCompletionRequest{
 		Model:       b.cfg.OpenAiModel,
 		Temperature: 0.2,
-		MaxTokens:   200,
+		MaxTokens:   2000,
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role:    openai.ChatMessageRoleUser,

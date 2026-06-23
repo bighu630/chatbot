@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/sourcegraph/conc/pool"
+
 	openai "github.com/sashabaranov/go-openai"
 )
 
 const (
-	saveTime = 100 * time.Hour
+	saveTime = 2 * time.Hour
 )
 
 var _ ai.AiInterface = (*openAi)(nil)
@@ -47,25 +49,30 @@ func NewOpenAi(cfg config.Ai) *openAi {
 	}
 
 	css := make(map[string][]openai.ChatCompletionMessage)
+	for _, u := range db.GetAllUser() {
+		css[u] = []openai.ChatCompletionMessage{}
+	}
+	workers := pool.New().WithMaxGoroutines(10)
 	if db != nil {
 		for _, u := range db.GetAllUser() {
-			msgs, err := db.GetMsgByTime(time.Now().Add(-saveTime), time.Now(), u)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to get chat record")
-				continue
-			}
-			var chatMessages []openai.ChatCompletionMessage
-			for _, m := range msgs {
-				chatMessages = append(chatMessages, openai.ChatCompletionMessage{
-					Role:    getRole(m.IsUser),
-					Content: m.Msg,
-				})
-			}
-			css[u] = chatMessages
+			workers.Go(func() {
+				msgs, err := db.GetMsgByTime(time.Now().Add(-saveTime), time.Now(), u)
+				if err != nil {
+					log.Error().Err(err).Msg("failed to get chat record")
+					return
+				}
+				var chatMessages []openai.ChatCompletionMessage
+				for _, m := range msgs {
+					chatMessages = append(chatMessages, openai.ChatCompletionMessage{
+						Role:    getRole(m.IsUser),
+						Content: m.Msg,
+					})
+				}
+				css[u] = chatMessages
+			})
 		}
-
 	}
-
+	workers.Wait()
 	g := &openAi{db: db, client: client, http: openai_config.HTTPClient, cfg: cfg, ctx: ctx, chats: css}
 	go g.autoDeleteDB()
 	log.Info().Msg("openai init success")
@@ -110,8 +117,8 @@ func (o *openAi) Chat(chatId string, msg string) (string, error) {
 		chatMessages = []openai.ChatCompletionMessage{}
 	}
 
-	if len(chatMessages) > 29 {
-		chatMessages = chatMessages[len(chatMessages)-30:]
+	if len(chatMessages) > 15 {
+		chatMessages = chatMessages[len(chatMessages)-15:]
 	}
 
 	chatMessages = append(chatMessages, openai.ChatCompletionMessage{

@@ -3,6 +3,7 @@ package handler
 import (
 	"chatbot/internal/storage/repo"
 	"errors"
+	"strconv"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -38,6 +39,14 @@ func NewGroupReplyTriggerConfig(stores ...repo.GroupConfig) *GroupReplyTriggerCo
 		cached: make(map[int64]float64),
 		loaded: make(map[int64]struct{}),
 	}
+}
+
+func (c *GroupReplyTriggerConfig) Rate(chatID string) float64 {
+	id, err := strconv.ParseInt(chatID, 10, 64)
+	if err != nil {
+		return randomGroupReplyBaseRate
+	}
+	return c.rate(id)
 }
 
 func (c *GroupReplyTriggerConfig) rate(chatID int64) float64 {
