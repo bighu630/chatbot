@@ -119,6 +119,9 @@ func (g *geminiHandler) HandleUpdate(b *gotgbot.Bot, ctx *ext.Context) error {
 	if !ok {
 		return nil
 	}
+	if after, ok0 := strings.CutPrefix(msg.Content.Text, "@"+b.Username+" "); ok0 {
+		msg.Content.Text = after
+	}
 	resp, handled, err := g.core.Handle(msg)
 	if err != nil {
 		return err
