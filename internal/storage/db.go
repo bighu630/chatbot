@@ -10,12 +10,12 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // Import MySQL driver
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog/log"
 	gormzerolog "github.com/vitaliy-art/gorm-zerolog"
 	"gorm.io/driver/mysql" // Import GORM MySQL driver
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	_ "modernc.org/sqlite"
 )
 
 var (

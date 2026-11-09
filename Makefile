@@ -16,7 +16,7 @@ all: clean $(SERVICES)
 $(SERVICES):
 	@echo "==> 构建模块: $@"
 	@mkdir -p $(BUILD_DIR)
-	go build -o $(BUILD_DIR)/$@ ./$(CMD_DIR)/$@
+	GOOS=linux GOARCH=amd64 go build -o $(BUILD_DIR)/$@ ./$(CMD_DIR)/$@
 
 # clean: 清理 bin 目录
 clean:
