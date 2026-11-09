@@ -241,6 +241,8 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		}
 	}
 	input := strings.TrimPrefix(ctx.EffectiveMessage.Text, "/chat ")
+	target := "@" + b.Username
+	input = strings.Trim(ctx.EffectiveMessage.Text, target)
 	userMessage := input
 	if input == "/help" {
 		_, err := b.SendMessage(ctx.EffectiveChat.Id, Help, nil)
@@ -269,8 +271,8 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 收到新消息: %s
 
-请以群友「摘星」的身份进行回复。
-机器人名字固定是「摘星」，这个名字不可修改，也不能自称别的名字。
+请以群友「托夏」的身份进行回复。
+机器人名字固定是「托夏」，这个名字不可修改，也不能自称别的名字。
 摘星人设： %s
 风格要求：
 1. 只进行「纯对话内容」，不能出现任何形式的旁白、动作、心理描写。
