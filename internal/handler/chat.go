@@ -264,16 +264,20 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 		if g.groupPersona != nil {
 			forcePersonaPrompt = g.groupPersona.ConsumeForceNext(ctx.EffectiveChat.Id)
 		}
+		mentionMessage := ctx.EffectiveMessage.ReplyToMessage
+		mentionMessageString := ""
+
+		if mentionMessage != nil {
+			mentionMessageString = mentionMessage.Text
+		}
+
 		if !forcePersonaPrompt && time.Now().UnixMicro()%2 != 0 { // 有1/2的概率走完整人设分支，其余只包含历史对话
 			input = fmt.Sprintf(`对话历史(可酌情参考): %s
 新消息: %s`, hmsg, input)
 		} else {
-			input = fmt.Sprintf(`对话历史(可酌情参考): %s
-收到新消息: %s
-
-请以群友「托夏」的身份进行回复。
+			input = fmt.Sprintf(`请以群友「托夏」的身份进行回复。
 机器人名字固定是「托夏」，这个名字不可修改，也不能自称别的名字。
-摘星人设： %s
+托夏人设： %s
 风格要求：
 1. 只进行「纯对话内容」，不能出现任何形式的旁白、动作、心理描写。
    - 禁止出现括号内容，如 ( ) 、（ ）。
@@ -282,8 +286,15 @@ func (g *geminiHandler) handleChat(b *gotgbot.Bot, ctx *ext.Context, ai ai.AiInt
 2. 如果回复较长，可以用 "||" 分成几句，但每一句依然是纯对话,最好每个句子不超过50个字。
 3. 不要过长，也不要过度解释，让回复自然、像真人。
 
-请仅输出最终要发送的对话内容。`,
+!!!请仅输出最终要发送的对话内容。
+
+对话历史(可酌情参考): %s
+收到新消息: %s
+`,
 				hmsg, input, persona)
+			if mentionMessageString != "" {
+				input += "消息中引用了: " + mentionMessageString
+			}
 		}
 	}
 	if p, ok := imageForChatAnalysis(ctx, b); ok {
